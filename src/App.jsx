@@ -14,6 +14,21 @@ const SUG_STYLES = [
   { color:"#7a5c20", border:"#e8d5a0", bg:"#fdf5e6" },
 ];
 
+// Dove's conversation steps
+const DOVE_STEPS = [
+  (name) => `Hello ${name.split(" ")[0]} — I'm Dove, your gifting concierge at Rock Dove.\n\nTell me about your gifting need. Who are you gifting, and what's the occasion?`,
+  (ctx) => {
+    const hints = [
+      "What's your approximate budget per gift?",
+      "And roughly how many people are on your list?",
+    ];
+    return `Wonderful. ${ctx.occasionAck}\n\n${hints[0]}`;
+  },
+  (ctx) => {
+    return `Got it — ${ctx.budgetAck}.\n\nOne last thing: any preferences I should keep in mind? For example, non-edible gifts, something desk-friendly, or anything to avoid?`;
+  },
+];
+
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
   const match = tiers
@@ -28,49 +43,65 @@ function initials(name) {
 
 function extractBudget(q) {
   const m = q.match(
-    /under\s*₹?\s*(\d[\d,]*)|below\s*₹?\s*(\d[\d,]*)|budget\s*(is|of|:)?\s*₹?\s*(\d[\d,]*)|₹\s*(\d[\d,]*)|rs\.?\s*(\d[\d,]*)|(\d[\d,]*)\s*(each|per\s*unit|\/unit)/i
+    /under\s*₹?\s*(\d[\d,]*)|below\s*₹?\s*(\d[\d,]*)|budget\s*(is|of|:)?\s*₹?\s*(\d[\d,]*)|around\s*₹?\s*(\d[\d,]*)|₹\s*(\d[\d,]*)|rs\.?\s*(\d[\d,]*)|(\d[\d,]+)\s*(k\b|thousand)?/i
   );
   if (m) {
-    const raw = m[1] || m[2] || m[4] || m[5] || m[6] || m[7];
-    if (raw) return parseInt(raw.replace(/,/g, ""));
+    const raw = m[1] || m[2] || m[4] || m[5] || m[6] || m[7] || m[8];
+    if (raw) {
+      let val = parseInt(raw.replace(/,/g, ""));
+      if ((m[9] || "").toLowerCase().includes("k") || (m[9] || "").toLowerCase().includes("thousand")) val *= 1000;
+      return val;
+    }
   }
   return null;
 }
 
-function scoreProduct(product, includeTags, excludeTags) {
-  // tags may be a JSONB array of strings or objects — handle both safely
-  const rawTags = product.tags || product.tag_list || [];
-  const productTags = rawTags.map(t =>
-    (typeof t === "string" ? t : t.tag || t.name || "").toLowerCase()
-  );
-  if (excludeTags?.length) {
-    for (const tag of excludeTags) {
-      if (productTags.includes(tag.toLowerCase())) return -1;
-    }
-  }
-  let score = 0;
-  if (includeTags?.length) {
-    for (const tag of includeTags) {
-      if (productTags.includes(tag.toLowerCase())) score++;
-    }
-  }
-  return score;
+function occasionAck(text) {
+  const t = text.toLowerCase();
+  if (t.includes("diwali")) return "Diwali gifting — one of the most important occasions to get right.";
+  if (t.includes("anniversary")) return "A work anniversary is a moment that really deserves something personal.";
+  if (t.includes("onboard") || t.includes("joining") || t.includes("welcome")) return "A welcome gift sets the tone — it should feel considered, not corporate.";
+  if (t.includes("thank") || t.includes("client")) return "A client thank-you is an opportunity to leave a lasting impression.";
+  if (t.includes("birthday")) return "Birthdays call for something that feels genuinely personal.";
+  if (t.includes("retirement")) return "A retirement gift should honour the relationship, not just the milestone.";
+  return "That's a meaningful occasion to get right.";
+}
+
+function budgetAck(text) {
+  const b = extractBudget(text);
+  if (b) return `₹${b.toLocaleString("en-IN")} per gift is a good space to work with`;
+  return "I'll keep budget in mind as I curate";
+}
+
+function buildQuery(messages) {
+  // Compile conversation into a search query
+  const userMessages = messages.filter(m => m.role === "user").map(m => m.text).join(". ");
+  return userMessages;
 }
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
-  const [products, setProducts] = useState([]);
   const productsRef = useRef([]);
   const [results, setResults] = useState([]);
   const [hearted, setHearted] = useState(new Set());
-  const [query, setQuery] = useState("");
+
+  // Conversation state
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState("");
+  const [step, setStep] = useState(0); // 0=greeting shown, 1=occasion answered, 2=budget answered, 3=prefs answered
+  const [doveTyping, setDoveTyping] = useState(false);
+  const [conversationCtx, setConversationCtx] = useState({});
+  const messagesEndRef = useRef(null);
+
+  // Results state
+  const [view, setView] = useState("chat"); // chat | results | submitted
   const [chips, setChips] = useState([]);
   const [aiMessage, setAiMessage] = useState("");
   const [aiQuestion, setAiQuestion] = useState("");
-  const [view, setView] = useState("landing");
   const [loading, setLoading] = useState(false);
   const [sort, setSort] = useState("rec");
+  const [query, setQuery] = useState("");
   const [conversationHistory, setConversationHistory] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -82,6 +113,10 @@ export default function App() {
     else setNotFound(true);
   }, []);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, doveTyping]);
+
   const loadSession = async (token) => {
     const { data, error } = await supabase
       .from("rd_sessions").select("*").eq("token", token).single();
@@ -91,6 +126,10 @@ export default function App() {
       .update({ last_active: new Date().toISOString() }).eq("id", data.id);
     await loadProducts();
     loadShortlist(data.id);
+    // Start conversation
+    setTimeout(() => {
+      addDoveMessage(DOVE_STEPS[0](data.client_name));
+    }, 600);
   };
 
   const loadProducts = async () => {
@@ -99,14 +138,13 @@ export default function App() {
       .select("*, pricing_tiers(*)")
       .eq("active", true)
       .order("popularity", { ascending: false });
-    if (error) { console.error("loadProducts error:", error); return; }
+    if (error) { console.error("loadProducts:", error); return; }
     if (data) {
       const mapped = data.map((p, i) => ({
         ...p,
         _bg: BG_COLORS[i % BG_COLORS.length],
         _price: priceAtQty(p.pricing_tiers, 1),
       }));
-      setProducts(mapped);
       productsRef.current = mapped;
     }
   };
@@ -131,12 +169,76 @@ export default function App() {
     }]);
   }, [session]);
 
-  const doSearch = async (q) => {
-    if (!q.trim() || loading) return;
+  const addDoveMessage = (text) => {
+    setMessages(prev => [...prev, { role: "dove", text }]);
+  };
+
+  const addUserMessage = (text) => {
+    setMessages(prev => [...prev, { role: "user", text }]);
+  };
+
+  const doveReply = (text, delay = 1200) => {
+    setDoveTyping(true);
+    setTimeout(() => {
+      setDoveTyping(false);
+      addDoveMessage(text);
+    }, delay);
+  };
+
+  const handleSend = async () => {
+    const text = inputText.trim();
+    if (!text || doveTyping || loading) return;
+    setInputText("");
+    addUserMessage(text);
+    saveConversation("user", text);
+
+    if (step === 0) {
+      // Occasion + recipient answered
+      const ack = occasionAck(text);
+      const ctx = { ...conversationCtx, occasionAck: ack, occasion: text };
+      setConversationCtx(ctx);
+      setStep(1);
+      doveReply(DOVE_STEPS[1](ctx));
+    } else if (step === 1) {
+      // Budget answered
+      const bAck = budgetAck(text);
+      const budget = extractBudget(text);
+      const ctx = { ...conversationCtx, budgetAck: bAck, budget, budgetText: text };
+      setConversationCtx(ctx);
+      setStep(2);
+      doveReply(DOVE_STEPS[2](ctx));
+    } else if (step === 2) {
+      // Preferences answered — now curate
+      const ctx = { ...conversationCtx, prefs: text };
+      setConversationCtx(ctx);
+      setStep(3);
+      setDoveTyping(true);
+      setTimeout(() => {
+        setDoveTyping(false);
+        addDoveMessage(`Perfect. Give me a moment to find something just right for you.`);
+        setTimeout(() => startCuration(ctx), 800);
+      }, 1400);
+    } else {
+      // Refinement after results
+      const refinedQuery = text;
+      setQuery(refinedQuery);
+      doSearch(refinedQuery, buildQuery([...messages, { role: "user", text }]));
+    }
+  };
+
+  const startCuration = async (ctx) => {
     setLoading(true);
+    // Build a rich query from the conversation
+    const richQuery = [ctx.occasion, ctx.budgetText, ctx.prefs].filter(Boolean).join(". ");
+    setQuery(richQuery);
+    await doSearch(richQuery, richQuery);
     setView("results");
+  };
+
+  const doSearch = async (q, fullContext) => {
+    if (!q) return;
+    setLoading(true);
     logEvent("query", null, { query: q });
-    saveConversation("user", q);
 
     const allProducts = productsRef.current;
 
@@ -144,7 +246,10 @@ export default function App() {
       const res = await fetch(CATALOGUE_URL + "/interpret-query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, conversation_history: conversationHistory }),
+        body: JSON.stringify({
+          query: fullContext || q,
+          conversation_history: conversationHistory,
+        }),
       });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
@@ -154,7 +259,7 @@ export default function App() {
       setConversationHistory(newHistory);
 
       const qty = data.qty || 1;
-      const budget = data.budget || extractBudget(q) || Infinity;
+      const budget = data.budget || extractBudget(q) || conversationCtx.budget || Infinity;
       const includeTags = data.include_tags || [];
       const excludeTags = data.exclude_tags || [];
 
@@ -168,11 +273,7 @@ export default function App() {
       setChips(newChips);
       setAiMessage(data.summary || "Here are some curated gifts for you.");
       setAiQuestion(data.follow_up || "");
-
-      saveConversation("assistant", data.summary || "", {
-        intent: data.intent, audience: data.audience,
-        include_tags: includeTags, exclude_tags: excludeTags,
-      });
+      saveConversation("assistant", data.summary || "");
 
       const filtered = allProducts
         .filter(p => {
@@ -180,26 +281,26 @@ export default function App() {
           if (budget < Infinity && price > budget * 1.15) return false;
           if (data.exclude_edible && p.edible) return false;
           if (data.exclude_fragile && p.fragile) return false;
-          if (scoreProduct(p, includeTags, excludeTags) === -1) return false;
           return true;
         })
         .map(p => ({
           ...p,
           _price: priceAtQty(p.pricing_tiers, qty),
-          _tagScore: scoreProduct(p, includeTags, excludeTags),
         }))
-        .sort((a, b) =>
-          b._tagScore - a._tagScore || (b.popularity || 0) - (a.popularity || 0)
-        );
+        .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
 
       setResults(filtered.slice(0, 12));
       setSort("rec");
     } catch (e) {
-      console.error("Search error:", e);
+      console.error(e);
       setResults(allProducts.slice(0, 12));
-      setAiMessage("Here are some of our curated gifts. Refine your search to narrow it down.");
+      setAiMessage("Here are our top curated gifts. Tell me more to refine the selection.");
     }
     setLoading(false);
+  };
+
+  const refineFromChat = (text) => {
+    setInputText(text);
   };
 
   const toggleHeart = async (productId) => {
@@ -231,7 +332,7 @@ export default function App() {
   const sortedResults = [...results].sort((a, b) => {
     if (sort === "asc") return a._price - b._price;
     if (sort === "desc") return b._price - a._price;
-    return (b._tagScore || 0) - (a._tagScore || 0) || (b.popularity || 0) - (a.popularity || 0);
+    return (b.popularity || 0) - (a.popularity || 0);
   });
 
   const shortlistedItems = results.filter(p => hearted.has(p.id));
@@ -287,6 +388,9 @@ export default function App() {
           <div style={S.logoSub}>by Ikka Dukka · Gift Intelligence</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {view === "results" && (
+            <button style={S.backBtn} onClick={() => setView("chat")}>← Dove</button>
+          )}
           <div style={S.av}>{initials(session.client_name)}</div>
           <div>
             <div style={S.cname}>{session.client_name}</div>
@@ -295,57 +399,82 @@ export default function App() {
         </div>
       </div>
 
-      {/* Landing */}
-      {view === "landing" && (
-        <div style={S.landing}>
-          <div style={S.welcome}>Welcome, {session.client_name.split(" ")[0]}</div>
-          <div style={S.h1}>
-            What would you like<br />to <em style={{ fontStyle: "italic", color: "#2C5F3A" }}>gift</em> today?
+      {/* ── CHAT VIEW ── */}
+      {view === "chat" && (
+        <div style={S.chatWrap}>
+
+          {/* Messages */}
+          <div style={S.messages}>
+            {messages.map((m, i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "dove" ? "flex-start" : "flex-end", marginBottom: 20 }}>
+                {m.role === "dove" && (
+                  <div style={S.doveLabel}>
+                    <div style={S.doveDot}></div>
+                    <span>Dove</span>
+                  </div>
+                )}
+                <div style={m.role === "dove" ? S.doveBubble : S.userBubble}>
+                  {m.text.split("\n").map((line, j) => (
+                    <span key={j}>{line}{j < m.text.split("\n").length - 1 && <br />}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {doveTyping && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", marginBottom: 20 }}>
+                <div style={S.doveLabel}>
+                  <div style={S.doveDot}></div>
+                  <span>Dove</span>
+                </div>
+                <div style={{ ...S.doveBubble, padding: "14px 20px" }}>
+                  <div style={S.typingDots}>
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* After curation starts */}
+            {loading && step === 3 && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", marginBottom: 20 }}>
+                <div style={S.doveLabel}><div style={S.doveDot}></div><span>Dove</span></div>
+                <div style={S.doveBubble}>Searching through our curated catalogue…</div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
           </div>
-          <div style={S.searchWrap}>
-            <div style={S.searchRow}>
-              <input
-                style={S.inp}
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && doSearch(query)}
-                placeholder="e.g. Diwali gifts for 50 senior bankers, around ₹3,000…"
-              />
-              <button style={S.findBtn} onClick={() => doSearch(query)} disabled={loading}>
-                {loading ? "CURATING…" : "FIND GIFTS →"}
+
+          {/* Input */}
+          <div style={S.chatInputWrap}>
+            {step >= 3 && !loading && results.length > 0 && (
+              <button style={S.viewResultsBtn} onClick={() => setView("results")}>
+                VIEW {results.length} CURATED GIFTS →
               </button>
+            )}
+            <div style={S.chatInputRow}>
+              <input
+                style={S.chatInput}
+                value={inputText}
+                onChange={e => setInputText(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSend()}
+                placeholder={step === 0 ? "Tell Dove about the occasion…" : step === 1 ? "Your budget per gift…" : step === 2 ? "Any preferences or things to avoid…" : "Refine or ask Dove anything…"}
+                disabled={doveTyping || loading}
+              />
+              <button
+                style={{ ...S.sendBtn, ...((!inputText.trim() || doveTyping || loading) ? { opacity: 0.4 } : {}) }}
+                onClick={handleSend}
+                disabled={!inputText.trim() || doveTyping || loading}
+              >SEND →</button>
             </div>
-          </div>
-          <div style={S.sugs}>
-            {["DIWALI · LEADERSHIP TEAM", "CLIENT THANK-YOU", "NEW JOINER ONBOARDING", "WORK ANNIVERSARY"].map((s, i) => {
-              const st = SUG_STYLES[i % SUG_STYLES.length];
-              return (
-                <span key={s}
-                  style={{ ...S.sug, color: st.color, border: `1px solid ${st.border}`, background: st.bg }}
-                  onClick={() => { setQuery(s); doSearch(s); }}
-                >{s}</span>
-              );
-            })}
           </div>
         </div>
       )}
 
-      {/* Results */}
+      {/* ── RESULTS VIEW ── */}
       {view === "results" && (
         <>
-          <div style={S.qbar}>
-            <input
-              style={S.qbarInp}
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && doSearch(query)}
-              placeholder="Refine your search…"
-            />
-            <button style={S.refineBtn} onClick={() => doSearch(query)} disabled={loading}>
-              {loading ? "CURATING…" : "REFINE →"}
-            </button>
-          </div>
-
           {chips.length > 0 && (
             <div style={S.chipsRow}>
               {chips.map((c, i) => (
@@ -359,11 +488,11 @@ export default function App() {
           {aiMessage && (
             <div style={S.aiBar}>
               <div style={S.aiDot}></div>
-              <div style={S.aiLbl}>Rock Dove</div>
+              <div style={S.aiLbl}>Dove</div>
               <div style={S.aiTxt}>
                 {aiMessage}
                 {aiQuestion && (
-                  <span style={S.aiQ} onClick={() => { setQuery(aiQuestion); doSearch(aiQuestion); }}>
+                  <span style={S.aiQ} onClick={() => { setView("chat"); setTimeout(() => setInputText(aiQuestion), 100); }}>
                     {" "}{aiQuestion} →
                   </span>
                 )}
@@ -382,14 +511,10 @@ export default function App() {
                 </div>
               </div>
 
-              {loading ? (
-                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "3px", textTransform: "uppercase" }}>
-                  Curating your gifts…
-                </div>
-              ) : results.length === 0 ? (
+              {results.length === 0 ? (
                 <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "2px", textTransform: "uppercase", lineHeight: 2 }}>
-                  No gifts found for this search.<br />
-                  <span style={{ fontSize: 12, color: "#ccc" }}>Try adjusting your budget or occasion.</span>
+                  No gifts found.<br />
+                  <button style={{ ...S.sendBtn, marginTop: 16, fontSize: 11 }} onClick={() => setView("chat")}>REFINE WITH DOVE →</button>
                 </div>
               ) : (
                 <div style={S.grid}>
@@ -479,23 +604,26 @@ const styles = {
   av: { width: 36, height: 36, borderRadius: "50%", background: "#7A90B0", fontSize: 12, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" },
   cname: { fontSize: 12, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color: "#1a1a1a", lineHeight: 1.3 },
   cco: { fontSize: 11, fontWeight: 300, color: "#aaa" },
+  backBtn: { background: "none", border: "none", fontSize: 11, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color: "#2C5F3A", cursor: "pointer", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", marginRight: 8 },
 
-  landing: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 40px", textAlign: "center" },
-  welcome: { fontSize: 12, fontWeight: 600, letterSpacing: "3px", textTransform: "uppercase", color: "#C27B2A", marginBottom: 28 },
-  h1: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 52, fontWeight: 500, color: "#1a1a1a", lineHeight: 1.15, maxWidth: 520, marginBottom: 48 },
-  searchWrap: { width: "100%", maxWidth: 620, marginBottom: 32 },
-  searchRow: { display: "flex", alignItems: "stretch", gap: 0 },
-  inp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 15, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", borderBottom: "1.5px solid #1a1a1a", outline: "none", background: "transparent", padding: "8px 0" },
-  findBtn: { background: "#1a1a1a", color: "#fff", border: "none", padding: "12px 28px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", flexShrink: 0, marginLeft: 16 },
-  sugs: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 620 },
-  sug: { fontSize: 11, fontWeight: 600, cursor: "pointer", padding: "7px 16px", letterSpacing: "1px", textTransform: "uppercase" },
+  // Chat
+  chatWrap: { flex: 1, display: "flex", flexDirection: "column", maxWidth: 680, width: "100%", margin: "0 auto", padding: "0 24px" },
+  messages: { flex: 1, overflowY: "auto", padding: "40px 0 20px" },
+  doveLabel: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8 },
+  doveDot: { width: 6, height: 6, borderRadius: "50%", background: "#2C5F3A" },
+  doveLabel: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 9, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#2C5F3A" },
+  doveBubble: { background: "#f9f7f4", border: "1px solid #eeebe6", padding: "16px 20px", fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 17, color: "#333", lineHeight: 1.75, maxWidth: "85%", fontWeight: 400 },
+  userBubble: { background: "#1a1a1a", padding: "14px 20px", fontSize: 14, color: "#fff", lineHeight: 1.65, maxWidth: "75%", fontWeight: 300, letterSpacing: "0.3px" },
 
-  qbar: { padding: "0 40px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "stretch", background: "#fff", flexShrink: 0, gap: 16 },
-  qbarInp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 14, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", padding: "16px 0", outline: "none", background: "transparent" },
-  refineBtn: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 24px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", margin: "10px 0", flexShrink: 0 },
+  typingDots: { display: "flex", gap: 5, alignItems: "center" },
 
-  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 15, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
+  chatInputWrap: { borderTop: "1px solid #eeebe6", padding: "20px 0 24px", flexShrink: 0 },
+  viewResultsBtn: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: "14px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", marginBottom: 14, display: "block" },
+  chatInputRow: { display: "flex", gap: 12, alignItems: "stretch" },
+  chatInput: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 14, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", borderBottom: "1.5px solid #1a1a1a", padding: "8px 0", outline: "none", background: "transparent" },
+  sendBtn: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 22px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 4px 0 #c8bfb0", flexShrink: 0 },
 
+  // Results
   chipsRow: { padding: "10px 40px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid #eeebe6", flexShrink: 0 },
   chip: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#2C5F3A", padding: "5px 12px", border: "1px solid #a8c8b4", background: "#eaf2ec" },
   chipMuted: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", padding: "5px 12px", border: "1px solid #eee", background: "#fafafa" },
@@ -540,4 +668,5 @@ const styles = {
   slTotalLbl: { fontSize: 10, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#aaa" },
   slTotalVal: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 24, fontWeight: 500, color: "#1a1a1a" },
   slNote: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#ccc", textAlign: "center", marginTop: 12 },
+  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 15, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
 };
