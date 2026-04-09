@@ -24,6 +24,21 @@ function formatBoxContents(text) {
   return text.replace(/([a-z])([A-Z])/g, "$1 · $2").replace(/\s*,\s*/g, " · ").replace(/\s*\|\s*/g, " · ");
 }
 
+// Simple keyword matching for search when tags aren't available
+function keywordScore(product, query) {
+  const q = query.toLowerCase();
+  const fields = [
+    product.name || "",
+    product.category || "",
+    product.description || "",
+    product.whats_in_box || "",
+    product.keywords || "",
+  ].join(" ").toLowerCase();
+
+  const words = q.split(/\s+/).filter(w => w.length > 2);
+  return words.reduce((score, word) => score + (fields.includes(word) ? 1 : 0), 0);
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
@@ -34,10 +49,11 @@ export default function App() {
 
   // Conversation
   const [messages, setMessages] = useState([]);
-  const [doveHistory, setDoveHistory] = useState([]); // for Claude context
+  const [doveHistory, setDoveHistory] = useState([]);
   const [inputText, setInputText] = useState("");
   const [doveTyping, setDoveTyping] = useState(false);
   const [curationDone, setCurationDone] = useState(false);
+  const [lastFilters, setLastFilters] = useState(null);
   const messagesEndRef = useRef(null);
 
   // Results
@@ -108,8 +124,6 @@ export default function App() {
     const text = inputText.trim();
     if (!text || doveTyping || loading) return;
     setInputText("");
-
-    // Add user message to UI
     setMessages(prev => [...prev, { role: "user", text }]);
     saveConvo("user", text);
     setDoveTyping(true);
@@ -123,7 +137,6 @@ export default function App() {
         body: JSON.stringify({ message: text, conversation_history: doveHistory }),
       });
       const data = await res.json();
-
       setDoveTyping(false);
       setMessages(prev => [...prev, { role: "dove", text: data.response }]);
       setDoveHistory([...newHistory, { role: "assistant", content: data.response }]);
@@ -131,6 +144,7 @@ export default function App() {
 
       if (data.ready && data.filters) {
         setLoading(true);
+        setLastFilters(data.filters);
         await runSearch(data.filters);
         setCurationDone(true);
         setLoading(false);
@@ -138,7 +152,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
       setDoveTyping(false);
-      setMessages(prev => [...prev, { role: "dove", text: "I'm sorry, I had a moment of difficulty. Could you tell me a bit more?" }]);
+      setMessages(prev => [...prev, { role: "dove", text: "I'm sorry, I had a moment of difficulty. Could you tell me a little more?" }]);
     }
   };
 
@@ -146,13 +160,14 @@ export default function App() {
     const allProducts = productsRef.current;
     const budget = filters.budget || Infinity;
     const qty = filters.qty || 1;
+    const query = filters.query || "";
 
     try {
-      // Also call /interpret-query with the rich query for tag matching
+      // Call /interpret-query for tag extraction
       const res = await fetch(CATALOGUE_URL + "/interpret-query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: filters.query || "" }),
+        body: JSON.stringify({ query }),
       });
       const apiData = await res.json();
 
@@ -163,12 +178,9 @@ export default function App() {
       if (filters.exclude_edible) newChips.push({ label:"NON-EDIBLE", muted:true });
       if (filters.exclude_fragile) newChips.push({ label:"NON-FRAGILE", muted:true });
       setChips(newChips);
+      setAiMessage(apiData.summary || query);
+      saveConvo("assistant", apiData.summary || query);
 
-      const summary = apiData.summary || filters.query || "Here are your curated gifts.";
-      setAiMessage(summary);
-      saveConvo("assistant", summary);
-
-      // Score by tag match
       const includeTags = [...(filters.include_tags||[]), ...(apiData.include_tags||[])];
       const excludeTags = [...(filters.exclude_tags||[]), ...(apiData.exclude_tags||[])];
 
@@ -178,17 +190,21 @@ export default function App() {
           if (budget < Infinity && price > budget * 1.15) return false;
           if (filters.exclude_edible && p.edible) return false;
           if (filters.exclude_fragile && p.fragile) return false;
-          // Check exclude tags
+          // Exclude by tags if product has tags
           const pTags = (p.tags || []).map(t => (typeof t==="string"?t:t.tag||"").toLowerCase());
-          for (const tag of excludeTags) {
-            if (pTags.includes(tag.toLowerCase())) return false;
+          if (pTags.length > 0) {
+            for (const tag of excludeTags) {
+              if (pTags.includes(tag.toLowerCase())) return false;
+            }
           }
           return true;
         })
         .map(p => {
           const pTags = (p.tags || []).map(t => (typeof t==="string"?t:t.tag||"").toLowerCase());
-          const score = includeTags.reduce((s, tag) => s + (pTags.includes(tag.toLowerCase()) ? 1 : 0), 0);
-          return { ...p, _price: priceAtQty(p.pricing_tiers, qty), _score: score };
+          // Score by tag match + keyword match
+          const tagScore = includeTags.reduce((s, tag) => s + (pTags.includes(tag.toLowerCase()) ? 2 : 0), 0);
+          const kwScore = keywordScore(p, query);
+          return { ...p, _price: priceAtQty(p.pricing_tiers, qty), _score: tagScore + kwScore };
         })
         .sort((a,b) => b._score - a._score || (b.popularity||0)-(a.popularity||0));
 
@@ -196,15 +212,17 @@ export default function App() {
       setSort("rec");
     } catch(e) {
       console.error(e);
+      // Fallback: keyword-only search
       const fallback = allProducts
         .filter(p => budget === Infinity || priceAtQty(p.pricing_tiers, qty) <= budget * 1.15)
-        .map(p => ({ ...p, _price: priceAtQty(p.pricing_tiers, qty) }))
-        .sort((a,b) => (b.popularity||0)-(a.popularity||0));
+        .map(p => ({ ...p, _price: priceAtQty(p.pricing_tiers, qty), _score: keywordScore(p, query) }))
+        .sort((a,b) => b._score - a._score || (b.popularity||0)-(a.popularity||0));
       setResults(fallback.slice(0, 12));
-      setAiMessage("Here are some of our finest curated gifts.");
+      setAiMessage("Here are our top curated gifts for you.");
     }
   };
 
+  // FIX: Stay on results page, don't switch to chat
   const handleAskDove = async () => {
     const text = askDoveText.trim();
     if (!text || askDoveLoading) return;
@@ -212,9 +230,8 @@ export default function App() {
     setAskDoveOpen(false);
     setAskDoveLoading(true);
 
-    setMessages(prev => [...prev, { role: "user", text }]);
-    setDoveTyping(true);
-    setView("chat");
+    // Add to conversation silently without switching view
+    setMessages(prev => [...prev, { role: "user", text }, { role: "dove", text: "Let me refine your selection…" }]);
 
     try {
       const res = await fetch(CATALOGUE_URL + "/dove-chat", {
@@ -224,22 +241,29 @@ export default function App() {
       });
       const data = await res.json();
 
-      setDoveTyping(false);
-      setMessages(prev => [...prev, { role: "dove", text: data.response }]);
-      setDoveHistory(prev => [...prev, { role: "user", content: text }, { role: "assistant", content: data.response }]);
-      saveConvo("dove", data.response);
+      setDoveHistory(prev => [...prev,
+        { role: "user", content: text },
+        { role: "assistant", content: data.response }
+      ]);
+
+      // Update the last dove message with actual response
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "dove", text: data.response };
+        return updated;
+      });
 
       if (data.ready && data.filters) {
-        setLoading(true);
+        setLastFilters(data.filters);
         await runSearch(data.filters);
-        setLoading(false);
-        setView("results");
-      } else {
-        // Keep chat open for more info
-        setTimeout(() => setView("chat"), 100);
+      } else if (lastFilters) {
+        // Re-run with existing filters + new query merged
+        const merged = { ...lastFilters, query: (lastFilters.query || "") + ". " + text };
+        await runSearch(merged);
       }
+      // Stay on results — no setView("chat")
     } catch(e) {
-      setDoveTyping(false);
+      console.error(e);
     }
     setAskDoveLoading(false);
   };
@@ -282,7 +306,6 @@ export default function App() {
     <div style={S.center}>
       <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
       <p style={{ fontSize:16, color:"#555", marginTop:28 }}>This link is invalid or has expired.</p>
-      <p style={{ fontSize:13, color:"#aaa", marginTop:8 }}>Please contact your Rock Dove curator for a new link.</p>
     </div>
   );
 
@@ -348,10 +371,7 @@ export default function App() {
               {messages.map((m, i) => (
                 <div key={i} style={{ display:"flex", flexDirection:"column", alignItems: m.role==="dove" ? "flex-start" : "flex-end", marginBottom:28 }}>
                   {m.role === "dove" && (
-                    <div style={S.doveLabel}>
-                      <span style={S.doveDot}></span>
-                      DOVE
-                    </div>
+                    <div style={S.doveLabel}><span style={S.doveDot}></span>DOVE</div>
                   )}
                   <div style={m.role === "dove" ? S.doveBubble : S.userBubble}>
                     {m.text.split("\n").map((line, j, arr) => (
@@ -407,7 +427,7 @@ export default function App() {
                   </svg>
                 </button>
               </div>
-              <p style={{ fontSize:10, color:"#ccc", letterSpacing:"1.5px", textTransform:"uppercase", textAlign:"center", marginTop:10, margin:"10px 0 0" }}>
+              <p style={{ fontSize:10, color:"#ccc", letterSpacing:"1.5px", textTransform:"uppercase", textAlign:"center", marginTop:10 }}>
                 Your conversation is private and shared only with Rock Dove
               </p>
             </div>
@@ -528,45 +548,43 @@ export default function App() {
             </div>
           </div>
 
-          {/* Floating Ask Dove */}
+          {/* Floating Ask Dove — stays on results page */}
           <div style={S.floatingWrap}>
             {askDoveOpen ? (
               <div style={S.askDovePanel}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={S.doveNavDot}></span>
-                    <span style={{ fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#2C5F3A" }}>Ask Dove</span>
+                    <span style={S.doveNavDot} className="green-dot"></span>
+                    <span style={{ fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#2C5F3A" }}>Refine with Dove</span>
                   </div>
-                  <button style={{ background:"none", border:"none", fontSize:20, color:"#aaa", cursor:"pointer" }} onClick={() => setAskDoveOpen(false)}>×</button>
+                  <button style={{ background:"none", border:"none", fontSize:22, color:"#aaa", cursor:"pointer", lineHeight:1 }}
+                    onClick={() => setAskDoveOpen(false)}>×</button>
                 </div>
-                {aiMessage && (
-                  <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:14, fontStyle:"italic", color:"#999", marginBottom:12, lineHeight:1.6 }}>
-                    {aiMessage}
-                  </p>
-                )}
                 <div style={{ display:"flex", gap:8 }}>
                   <input
                     style={S.askDoveInput}
                     value={askDoveText}
                     onChange={e => setAskDoveText(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleAskDove()}
-                    placeholder="e.g. Nothing edible, prefer something for the home…"
+                    placeholder="e.g. Only desk-friendly items, nothing edible…"
                     autoFocus
                   />
                   <button
-                    style={{ ...S.chatSendBtn, width:46, height:46, boxShadow:"none", ...(!askDoveText.trim() ? { opacity:0.3, cursor:"not-allowed" } : {}) }}
+                    style={{ ...S.chatSendBtn, width:46, height:46, flexShrink:0, ...(!askDoveText.trim() ? { opacity:0.3, cursor:"not-allowed" } : {}) }}
                     onClick={handleAskDove}
                     disabled={!askDoveText.trim() || askDoveLoading}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                    </svg>
+                    {askDoveLoading ? "…" : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                      </svg>
+                    )}
                   </button>
                 </div>
               </div>
             ) : (
               <button style={S.askDoveBtn} onClick={() => setAskDoveOpen(true)}>
-                <span style={S.doveNavDot}></span>
+                <span style={{ ...S.doveNavDot, background:"#fff" }}></span>
                 ASK DOVE TO REFINE
               </button>
             )}
@@ -574,13 +592,14 @@ export default function App() {
         </>
       )}
 
-      {/* ── PRODUCT DETAIL MODAL ── */}
+      {/* ── PRODUCT DETAIL MODAL ── rendered outside view conditionals so always accessible */}
       {selectedProduct && (
         <div style={S.modalOverlay} onClick={() => setSelectedProduct(null)}>
           <div style={S.modalBox} onClick={e => e.stopPropagation()}>
             <button style={S.modalClose} onClick={() => setSelectedProduct(null)}>×</button>
             <div style={S.modalInner}>
-              {/* Image — full height left panel */}
+
+              {/* Left: Image — explicit height so it never collapses */}
               <div style={S.modalImgWrap}>
                 {selectedProduct.image_url ? (
                   <img
@@ -589,13 +608,13 @@ export default function App() {
                     style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}
                   />
                 ) : (
-                  <div style={{ width:"100%", height:"100%", background:selectedProduct._bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <div style={{ width:"100%", height:"100%", background: selectedProduct._bg || "#f5f0eb", display:"flex", alignItems:"center", justifyContent:"center" }}>
                     <span style={{ fontSize:12, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{selectedProduct.category}</span>
                   </div>
                 )}
               </div>
 
-              {/* Content */}
+              {/* Right: Details */}
               <div style={S.modalContent}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
                   <span style={{ ...S.tier, ...(selectedProduct.tier==="Gold"?S.tierGold:selectedProduct.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
@@ -607,52 +626,54 @@ export default function App() {
                   >{hearted.has(selectedProduct.id) ? "♥" : "♡"}</button>
                 </div>
 
-                <h2 style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:26, fontWeight:500, color:"#1a1a1a", lineHeight:1.25, marginBottom:6, margin:"0 0 6px" }}>
+                <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:26, fontWeight:500, color:"#1a1a1a", lineHeight:1.25, marginBottom:6 }}>
                   {selectedProduct.name}
-                </h2>
-                <p style={{ fontSize:11, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:20 }}>
+                </div>
+                <div style={{ fontSize:11, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:20 }}>
                   {selectedProduct.category}
-                </p>
-                <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:30, fontWeight:500, color:"#1a1a1a", marginBottom:24 }}>
+                </div>
+                <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:30, fontWeight:500, color:"#1a1a1a", marginBottom:24 }}>
                   ₹{selectedProduct._price.toLocaleString("en-IN")}
-                </p>
+                </div>
 
                 {selectedProduct.description && (
-                  <p style={{ fontSize:14, color:"#555", lineHeight:1.8, marginBottom:24 }}>{selectedProduct.description}</p>
+                  <div style={{ fontSize:14, color:"#555", lineHeight:1.8, marginBottom:24 }}>
+                    {selectedProduct.description}
+                  </div>
                 )}
 
                 {selectedProduct.whats_in_box && (
                   <div style={{ marginBottom:22, paddingBottom:20, borderBottom:"1px solid #f0f0f0" }}>
-                    <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:10 }}>What's in the box</p>
-                    <p style={{ fontSize:14, color:"#555", lineHeight:1.8 }}>
+                    <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:10 }}>What's in the box</div>
+                    <div style={{ fontSize:14, color:"#555", lineHeight:1.8 }}>
                       {formatBoxContents(selectedProduct.whats_in_box)}
-                    </p>
+                    </div>
                   </div>
                 )}
 
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px 24px", marginBottom:28 }}>
                   {selectedProduct.moq && (
                     <div>
-                      <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Min. Order</p>
-                      <p style={{ fontSize:14, color:"#333" }}>{selectedProduct.moq} units</p>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Min. Order</div>
+                      <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.moq} units</div>
                     </div>
                   )}
                   {selectedProduct.lead_time && (
                     <div>
-                      <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Lead Time</p>
-                      <p style={{ fontSize:14, color:"#333" }}>{selectedProduct.lead_time}</p>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Lead Time</div>
+                      <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.lead_time}</div>
                     </div>
                   )}
                   {selectedProduct.box_dimensions && (
                     <div>
-                      <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Dimensions</p>
-                      <p style={{ fontSize:14, color:"#333" }}>{selectedProduct.box_dimensions}</p>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Dimensions</div>
+                      <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.box_dimensions}</div>
                     </div>
                   )}
                   {selectedProduct.weight_grams && (
                     <div>
-                      <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Weight</p>
-                      <p style={{ fontSize:14, color:"#333" }}>{selectedProduct.weight_grams}g</p>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Weight</div>
+                      <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.weight_grams}g</div>
                     </div>
                   )}
                 </div>
@@ -681,14 +702,13 @@ const styles = {
   logoD: { fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:21, fontStyle:"italic", color:"#2C5F3A", fontWeight:500 },
   logoSub: { fontSize:10, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginTop:3, fontWeight:300 },
 
-  hdr: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 40px", height:64, background:"#fff", borderBottom:"1px solid #e8e2d8", flexShrink:0, zIndex:10 },
+  hdr: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 40px", height:64, background:"#fff", borderBottom:"1px solid #e8e2d8", flexShrink:0 },
   av: { width:36, height:36, borderRadius:"50%", background:"#7A90B0", fontSize:12, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center" },
   cname: { fontSize:12, fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", color:"#1a1a1a" },
   cco: { fontSize:11, fontWeight:300, color:"#aaa" },
   doveNavBtn: { display:"flex", alignItems:"center", gap:8, background:"#2C5F3A", border:"none", padding:"10px 18px", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#fff", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4" },
-  doveNavDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:"#fff", flexShrink:0 },
+  doveNavDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:"#2C5F3A", flexShrink:0 },
 
-  // Chat
   chatOuter: { flex:1, display:"flex", flexDirection:"column", overflow:"hidden" },
   chatInner: { flex:1, display:"flex", flexDirection:"column", maxWidth:700, width:"100%", margin:"0 auto", padding:"0 32px", overflow:"hidden" },
   messages: { flex:1, overflowY:"auto", padding:"48px 0 16px" },
@@ -696,39 +716,15 @@ const styles = {
   doveLabel: { display:"flex", alignItems:"center", gap:7, marginBottom:10, fontSize:10, fontWeight:600, letterSpacing:"2.5px", color:"#2C5F3A" },
   doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:"#2C5F3A", flexShrink:0 },
 
-  doveBubble: {
-    display:"block",
-    background:"#FAFAF8",
-    borderLeft:"3px solid #2C5F3A",
-    padding:"20px 24px",
-    fontSize:16,
-    color:"#2a2a2a",
-    lineHeight:1.9,
-    maxWidth:"84%",
-    fontWeight:400,
-    letterSpacing:"0.01em",
-  },
-
-  userBubble: {
-    display:"block",
-    background:"#1a1a1a",
-    padding:"13px 18px",
-    fontSize:14,
-    color:"#fff",
-    lineHeight:1.65,
-    maxWidth:"70%",
-    fontWeight:300,
-    letterSpacing:"0.3px",
-  },
+  doveBubble: { display:"block", background:"#FAFAF8", borderLeft:"3px solid #2C5F3A", padding:"18px 22px", fontSize:16, color:"#2a2a2a", lineHeight:1.85, maxWidth:"84%", fontWeight:400 },
+  userBubble: { display:"block", background:"#1a1a1a", padding:"12px 18px", fontSize:14, color:"#fff", lineHeight:1.65, maxWidth:"70%", fontWeight:300 },
 
   chatInputArea: { borderTop:"1px solid #eeebe6", padding:"18px 0 24px", flexShrink:0 },
   viewGiftsBtn: { width:"100%", background:"#2C5F3A", color:"#fff", border:"none", padding:15, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 5px 0 #a8d4b4", marginBottom:14, display:"block" },
-
-  chatInputBox: { display:"flex", alignItems:"center", border:"1.5px solid #1a1a1a", background:"#fff" },
-  chatInput: { flex:1, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:15, fontWeight:300, color:"#1a1a1a", border:"none", outline:"none", background:"transparent", padding:"13px 18px", letterSpacing:"0.3px" },
+  chatInputBox: { display:"flex", alignItems:"center", border:"1.5px solid #1a1a1a" },
+  chatInput: { flex:1, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:15, fontWeight:300, color:"#1a1a1a", border:"none", outline:"none", background:"transparent", padding:"13px 18px" },
   chatSendBtn: { width:50, height:50, background:"#2C5F3A", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0 },
 
-  // Results
   chipsRow: { padding:"10px 40px", display:"flex", gap:6, flexWrap:"wrap", borderBottom:"1px solid #eeebe6", flexShrink:0 },
   chip: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#2C5F3A", padding:"5px 12px", border:"1px solid #a8c8b4", background:"#eaf2ec" },
   chipMuted: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", padding:"5px 12px", border:"1px solid #eee", background:"#fafafa" },
@@ -758,7 +754,6 @@ const styles = {
   cardCat: { fontSize:11, fontWeight:300, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", marginTop:4 },
   cardPrice: { fontSize:14, fontWeight:600, color:"#1a1a1a", marginTop:10 },
 
-  // Shortlist
   sl: { width:256, background:"#fff", borderLeft:"1px solid #e8e2d8", display:"flex", flexDirection:"column", flexShrink:0 },
   slHdr: { padding:"22px 20px 16px", borderBottom:"1px solid #eeebe6", display:"flex", alignItems:"baseline", justifyContent:"space-between", flexShrink:0 },
   slTitle: { fontSize:11, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", color:"#1a1a1a" },
@@ -775,17 +770,16 @@ const styles = {
   slNote: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#ccc", textAlign:"center", marginTop:12 },
   btnGreen: { width:"100%", background:"#2C5F3A", color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 5px 0 #a8d4b4", display:"block" },
 
-  // Floating Ask Dove
-  floatingWrap: { position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)", zIndex:100, maxWidth:500, width:"calc(100% - 320px)" },
-  askDoveBtn: { display:"flex", alignItems:"center", gap:10, background:"#2C5F3A", border:"none", padding:"13px 28px", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#fff", cursor:"pointer", boxShadow:"0 6px 24px rgba(44,95,58,0.35)", margin:"0 auto" },
+  floatingWrap: { position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)", zIndex:100, maxWidth:480, width:"calc(100% - 320px)" },
+  askDoveBtn: { display:"flex", alignItems:"center", gap:10, background:"#2C5F3A", border:"none", padding:"13px 28px", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#fff", cursor:"pointer", boxShadow:"0 6px 24px rgba(44,95,58,0.4)", margin:"0 auto" },
   askDovePanel: { background:"#fff", border:"2px solid #2C5F3A", padding:"20px 24px", boxShadow:"0 8px 32px rgba(0,0,0,0.15)" },
   askDoveInput: { flex:1, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:14, fontWeight:300, color:"#1a1a1a", border:"1px solid #ddd", padding:"11px 14px", outline:"none", background:"transparent" },
 
-  // Modal
-  modalOverlay: { position:"fixed", inset:0, background:"rgba(10,10,10,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:32 },
-  modalBox: { background:"#fff", width:"100%", maxWidth:860, maxHeight:"90vh", overflowY:"auto", position:"relative" },
-  modalClose: { position:"absolute", top:14, right:18, background:"none", border:"none", fontSize:28, color:"#999", cursor:"pointer", lineHeight:1, zIndex:10 },
-  modalInner: { display:"flex" },
-  modalImgWrap: { width:380, minWidth:380, flexShrink:0, minHeight:520, background:"#f5f0eb", overflow:"hidden" },
+  // Modal — explicit height on image wrapper so it never collapses
+  modalOverlay: { position:"fixed", inset:0, background:"rgba(10,10,10,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
+  modalBox: { background:"#fff", width:"100%", maxWidth:860, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
+  modalClose: { position:"absolute", top:14, right:18, background:"none", border:"none", fontSize:30, color:"#999", cursor:"pointer", lineHeight:1, zIndex:10 },
+  modalInner: { display:"flex", flex:1, overflow:"hidden", minHeight:520 },
+  modalImgWrap: { width:380, minWidth:380, flexShrink:0, background:"#f5f0eb", overflow:"hidden", position:"relative" },
   modalContent: { flex:1, padding:"40px 36px", overflowY:"auto" },
 };
