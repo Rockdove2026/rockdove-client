@@ -8,27 +8,26 @@ const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
 const DOVE_BLUE = "#6B8CAE";
 
-// Dove's system prompt for intake — extracts who/qty/date/occasion
 const INTAKE_SYSTEM = `You are Dove, gifting concierge for Rock Dove by Ikka Dukka — a premium Indian gifting platform.
 
-Your job: Extract a gifting brief from what the client says. Be warm, brief, and specific.
+Your job: Extract a gifting brief from what the client says. Be warm, brief, and specific. Replies max 2 sentences.
 
-FIRST: Check if this is a gifting query. If it's clearly not (weather, news, general questions), reply with a gentle redirect asking about their gifting need. Do not generate gift results for non-gifting queries.
+FIRST: Check if this is a gifting query. If it's clearly not (weather, news, general questions), reply with a gentle redirect. Do not generate gift results for non-gifting queries.
 
 If it IS a gifting query, extract:
-- recipient: who they're gifting (e.g. "senior bankers", "leadership team", "a client")  
-- quantity: how many gifts (number or "one", "single", etc.)
-- occasion: the occasion or reason (e.g. Diwali, anniversary, onboarding, thank-you)
+- recipient: who they're gifting
+- quantity: how many gifts
+- occasion: the occasion or reason
 - deadline: when needed by (if mentioned)
 - budget: per-unit budget in INR (if mentioned)
-- restrictions: anything to avoid (edible, fragile, etc.)
+- restrictions: anything to avoid
 
-If the query is a valid gifting brief with enough info, set ready: true.
-If key info is missing (especially who/occasion), set ready: false and ask ONE specific follow-up question.
+If the query is a valid gifting brief with enough info (at minimum: who + occasion), set ready: true.
+If key info is missing, set ready: false and ask ONE specific follow-up question.
 
 Always respond with valid JSON only — no markdown, no preamble:
 {
-  "response": "Your warm reply here (1-2 sentences max)",
+  "response": "Your warm reply here (max 2 sentences)",
   "ready": true or false,
   "is_gifting_query": true or false,
   "filters": {
@@ -82,14 +81,12 @@ export default function App() {
   const [notFound, setNotFound] = useState(false);
   const productsRef = useRef([]);
 
-  // Intake state
   const [intakeInput, setIntakeInput] = useState("");
-  const [intakeMessages, setIntakeMessages] = useState([]); // [{role, text}]
-  const [intakeHistory, setIntakeHistory] = useState([]); // for API
+  const [intakeMessages, setIntakeMessages] = useState([]);
+  const [intakeHistory, setIntakeHistory] = useState([]);
   const [intakeLoading, setIntakeLoading] = useState(false);
   const [pastQueries, setPastQueries] = useState([]);
 
-  // Results state
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -98,9 +95,8 @@ export default function App() {
   const [chips, setChips] = useState([]);
   const [lastFilters, setLastFilters] = useState(null);
   const [sort, setSort] = useState("rec");
-  const [view, setView] = useState("intake"); // intake | results | submitted
+  const [view, setView] = useState("intake");
 
-  // Shortlist
   const [hearted, setHearted] = useState(new Set());
   const heartedRef = useRef({});
   const [shortlistOpen, setShortlistOpen] = useState(false);
@@ -125,8 +121,6 @@ export default function App() {
       setSession(data);
       supabase.from("rd_sessions").update({ last_active: new Date().toISOString() }).eq("id", data.id);
       await Promise.all([loadProducts(), loadShortlist(data.id), loadPastQueries(data.id)]);
-
-      // Dove's opening message
       const opening = `Hello ${data.client_name.split(" ")[0]}. To find the right gifts, tell me: who are you gifting, what's the occasion, how many, and when do you need them by?`;
       setIntakeMessages([{ role:"dove", text: opening }]);
       setIntakeHistory([{ role:"assistant", content: opening }]);
@@ -171,9 +165,14 @@ export default function App() {
     try {
       const { data } = await supabase.from("rd_conversations")
         .select("message").eq("session_id", sessionId).eq("role", "user")
-        .order("created_at", { ascending: false }).limit(6);
+        .order("created_at", { ascending: false }).limit(10);
       if (data?.length > 0) {
-        setPastQueries(data.map(d=>d.message).filter(m=>!m.startsWith("Submitted")).slice(0,4));
+        // Only show substantive gifting queries — min 5 words and 30 chars
+        setPastQueries(
+          data.map(d => d.message)
+            .filter(m => !m.startsWith("Submitted") && m.length > 30 && m.trim().split(" ").length >= 5)
+            .slice(0, 4)
+        );
       }
     } catch {}
   };
@@ -188,28 +187,22 @@ export default function App() {
     try { await supabase.from("rd_events").insert([{ session_id: session.id, event_type: type, product_id: pid, metadata: meta }]); } catch {}
   }, [session]);
 
-  // Handle intake submission
   const handleIntakeSend = async () => {
     const text = intakeInput.trim();
     if (!text || intakeLoading) return;
     setIntakeInput("");
-
     const newMessages = [...intakeMessages, { role:"user", text }];
     setIntakeMessages(newMessages);
     setIntakeLoading(true);
-    saveConvo("user", text);
+    // Only save substantive messages
+    if (text.length > 20) saveConvo("user", text);
 
     try {
       const res = await fetch(CATALOGUE_URL + "/dove-chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          conversation_history: intakeHistory,
-          system_override: INTAKE_SYSTEM,
-        }),
+        body: JSON.stringify({ message: text, conversation_history: intakeHistory, system_override: INTAKE_SYSTEM }),
       });
       const data = await res.json();
-
       const doveReply = data.response || "Tell me more about what you're looking for.";
       setIntakeMessages([...newMessages, { role:"dove", text: doveReply }]);
       const newHistory = [...intakeHistory, { role:"user", content:text }, { role:"assistant", content:doveReply }];
@@ -217,22 +210,24 @@ export default function App() {
       saveConvo("dove", doveReply);
 
       if (!data.is_gifting_query) {
-        // Not a gifting query — Dove has already responded with a redirect, stay on intake
         setIntakeLoading(false);
         return;
       }
 
       if (data.ready && data.filters) {
-        // Brief is complete — go to results
-        setLastFilters(data.filters);
-        const briefQuery = data.filters.query || text;
+        const filters = data.filters;
+        const briefQuery = filters.query || text;
+        setLastFilters(filters);
         setQuery(briefQuery);
-        setPastQueries(prev => [text, ...prev.filter(p=>p!==text)].slice(0,4));
+        if (text.length > 30) setPastQueries(prev => [text, ...prev.filter(p=>p!==text)].slice(0,4));
+
+        // Switch to results immediately, then load in background
         setIntakeLoading(false);
-        await runCuration(data.filters, briefQuery);
         setView("results");
+        setSearching(true);
+        try { await runCuration(filters, briefQuery); } catch(e) { console.error(e); }
+        setSearching(false);
       } else {
-        // Dove asked a follow-up — stay on intake
         setIntakeLoading(false);
       }
     } catch(e) {
@@ -242,26 +237,20 @@ export default function App() {
     }
   };
 
-  // Handle refine from results bar
   const handleRefine = async (newQuery) => {
-    const q = newQuery || query;
-    if (!q.trim() || searching) return;
+    const q = (newQuery || query).trim();
+    if (!q || searching) return;
     setQuery(q);
     setSearching(true);
     setFollowUp("");
-    saveConvo("user", q);
+    if (q.length > 20) saveConvo("user", q);
 
     try {
       const res = await fetch(CATALOGUE_URL + "/dove-chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: q,
-          conversation_history: intakeHistory,
-          system_override: INTAKE_SYSTEM,
-        }),
+        body: JSON.stringify({ message: q, conversation_history: intakeHistory, system_override: INTAKE_SYSTEM }),
       });
       const data = await res.json();
-
       const newHistory = [...intakeHistory, { role:"user", content:q }, { role:"assistant", content:data.response }];
       setIntakeHistory(newHistory);
       saveConvo("dove", data.response);
@@ -271,16 +260,11 @@ export default function App() {
         setSearching(false);
         return;
       }
-
       const filters = data.filters || lastFilters || {};
       if (data.filters) setLastFilters(data.filters);
-      if (!data.ready && data.response) setFollowUp(data.response);
-      else setFollowUp("");
-
+      setFollowUp(!data.ready && data.response ? data.response : "");
       await runCuration(filters, filters.query || q);
-    } catch(e) {
-      console.error(e);
-    }
+    } catch(e) { console.error(e); }
     setSearching(false);
   };
 
@@ -299,22 +283,22 @@ export default function App() {
     if (filters.exclude_fragile) newChips.push({ label:"NON-FRAGILE", muted:true });
     setChips(newChips);
 
-    try {
-      const candidates = allProducts.filter(p => {
-        const price = priceAtQty(p.pricing_tiers, qty);
-        if (budget && price > budget * 1.2) return false;
-        if (filters.exclude_edible && p.edible) return false;
-        if (filters.exclude_fragile && p.fragile) return false;
-        return true;
-      }).map(p => ({
-        id: p.id, name: p.name||"", category: p.category||"",
-        description: (p.description||"").slice(0,150),
-        whats_in_box: (p.whats_in_box||"").slice(0,100),
-        price: priceAtQty(p.pricing_tiers, qty),
-        tier: p.tier||"",
-        tags: (p._tags||[]).join(", "),
-      }));
+    const candidates = allProducts.filter(p => {
+      const price = priceAtQty(p.pricing_tiers, qty);
+      if (budget && price > budget * 1.2) return false;
+      if (filters.exclude_edible && p.edible) return false;
+      if (filters.exclude_fragile && p.fragile) return false;
+      return true;
+    }).map(p => ({
+      id: p.id, name: p.name||"", category: p.category||"",
+      description: (p.description||"").slice(0,150),
+      whats_in_box: (p.whats_in_box||"").slice(0,100),
+      price: priceAtQty(p.pricing_tiers, qty),
+      tier: p.tier||"",
+      tags: (p._tags||[]).join(", "),
+    }));
 
+    try {
       const rankRes = await fetch(CATALOGUE_URL + "/dove-rank", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -328,11 +312,9 @@ export default function App() {
       const ranked = await rankRes.json();
       setAiSummary(ranked.summary || "");
       saveConvo("assistant", ranked.summary || "");
-
       const idOrder = ranked.ranked_ids || [];
       const productMap = {};
       allProducts.forEach(p => { productMap[p.id] = { ...p, _price: priceAtQty(p.pricing_tiers, qty) }; });
-
       const ordered = idOrder.map(id => productMap[id]).filter(Boolean);
       const rankedSet = new Set(idOrder);
       const rest = candidates.filter(c=>!rankedSet.has(c.id)).map(c=>productMap[c.id]).filter(Boolean);
@@ -424,12 +406,12 @@ export default function App() {
       {/* ── INTAKE ── */}
       {view === "intake" && (
         <div style={S.intakePage}>
-          {/* Client badge */}
+          {/* Client badge — caps, larger */}
           <div style={S.clientBadge}>
             <div style={S.av}>{initials(session.client_name)}</div>
             <div>
-              <p style={{ fontSize:12, fontWeight:600, color:"#111", margin:0 }}>{session.client_name}</p>
-              {session.client_company && <p style={{ fontSize:11, color:"#aaa", margin:0 }}>{session.client_company}</p>}
+              <p style={S.clientName}>{session.client_name.toUpperCase()}</p>
+              {session.client_company && <p style={S.clientCompany}>{session.client_company}</p>}
             </div>
           </div>
 
@@ -439,16 +421,16 @@ export default function App() {
               <p style={S.tagline}>by Ikka Dukka · Gift Intelligence</p>
             </div>
 
-            {/* Dove conversation */}
             <div style={S.intakeMessages}>
               {intakeMessages.map((m,i) => (
-                <div key={i} style={{ marginBottom:24, display:"flex", flexDirection:"column", alignItems: m.role==="dove"?"flex-start":"flex-end" }}>
+                <div key={i} style={{ marginBottom:28, display:"flex", flexDirection:"column", alignItems: m.role==="dove"?"flex-start":"flex-end" }}>
                   {m.role === "dove" && (
                     <div style={S.doveLabel}>
                       <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE }}></span>
                       <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DOVE_BLUE }}>Dove</span>
                     </div>
                   )}
+                  {/* Both Dove and user messages use Georgia serif — same font family, different style */}
                   <p style={m.role==="dove" ? S.doveMessage : S.userMessage}>
                     {m.text.split("\n").map((line,j,arr)=>(
                       <span key={j}>{line}{j<arr.length-1&&<br/>}</span>
@@ -458,12 +440,12 @@ export default function App() {
               ))}
 
               {intakeLoading && (
-                <div style={{ marginBottom:24 }}>
+                <div style={{ marginBottom:28 }}>
                   <div style={S.doveLabel}>
                     <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE }}></span>
                     <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DOVE_BLUE }}>Dove</span>
                   </div>
-                  <div style={{ display:"flex", gap:5, alignItems:"center", marginTop:8 }}>
+                  <div style={{ display:"flex", gap:5, alignItems:"center", marginTop:10 }}>
                     <span className="td"></span>
                     <span className="td" style={{ animationDelay:"0.2s" }}></span>
                     <span className="td" style={{ animationDelay:"0.4s" }}></span>
@@ -473,7 +455,6 @@ export default function App() {
               <div ref={intakeEndRef} />
             </div>
 
-            {/* Input */}
             <div style={S.intakeInputWrap}>
               <textarea
                 style={S.intakeTextarea}
@@ -496,15 +477,11 @@ export default function App() {
               </button>
             </div>
 
-            {/* Past searches */}
             {pastQueries.length > 0 && (
               <div style={S.pastSearches}>
                 <p style={S.pastLabel}>Recent searches</p>
                 {pastQueries.map((q,i) => (
-                  <button key={i} style={S.pastItem} onClick={() => {
-                    setIntakeInput(q);
-                    setTimeout(() => handleIntakeSend(), 50);
-                  }}>
+                  <button key={i} style={S.pastItem} onClick={() => { setIntakeInput(q); setTimeout(handleIntakeSend, 50); }}>
                     ↺ {q}
                   </button>
                 ))}
@@ -532,9 +509,7 @@ export default function App() {
                 style={{ ...S.searchBarBtn, ...(searching?{ opacity:0.5, cursor:"not-allowed" }:{}) }}
                 onClick={() => handleRefine()}
                 disabled={searching}
-              >
-                {searching?"…":"→"}
-              </button>
+              >{searching?"…":"→"}</button>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
               {hearted.size > 0 && (
@@ -602,10 +577,9 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Soft follow-up */}
                 {followUp && !searching && (
                   <div style={S.followUp}>
-                    <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0, marginTop:5 }}></span>
+                    <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0, marginTop:6 }}></span>
                     <div style={{ flex:1 }}>
                       <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontStyle:"italic", fontWeight:300, color:"#666", margin:"0 0 12px", lineHeight:1.75 }}>{followUp}</p>
                       <input style={S.followUpField} placeholder="Type to refine…"
@@ -714,20 +688,63 @@ export default function App() {
 const styles = {
   app: { minHeight:"100vh", background:"#fff", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif" },
   fullCenter: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"100vh", textAlign:"center", padding:32 },
-  av: { width:32, height:32, borderRadius:"50%", background:"#7A90B0", fontSize:11, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
+  av: { width:36, height:36, borderRadius:"50%", background:"#7A90B0", fontSize:12, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
 
   // Intake
   intakePage: { minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"60px 40px", position:"relative" },
-  clientBadge: { position:"absolute", top:28, right:32, display:"flex", alignItems:"center", gap:10 },
+
+  // Client badge — larger, caps
+  clientBadge: { position:"absolute", top:28, right:32, display:"flex", alignItems:"center", gap:12 },
+  clientName: {
+    fontFamily:"'Playfair Display',Georgia,serif",
+    fontSize:15,
+    fontWeight:700,
+    letterSpacing:3,
+    textTransform:"uppercase",
+    color:"#111",
+    margin:0,
+    lineHeight:1.3,
+  },
+  clientCompany: {
+    fontSize:11,
+    fontWeight:300,
+    color:"#aaa",
+    margin:0,
+    letterSpacing:"0.5px",
+  },
+
   intakeCenter: { width:"100%", maxWidth:640 },
   tagline: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"10px 0 0", textAlign:"center", fontWeight:300 },
+  intakeMessages: { marginBottom:24, maxHeight:340, overflowY:"auto" },
 
-  intakeMessages: { marginBottom:24, maxHeight:300, overflowY:"auto" },
-  doveLabel: { display:"flex", alignItems:"center", gap:6, marginBottom:8 },
-  doveMessage: { fontFamily:"Georgia,serif", fontSize:19, fontWeight:300, fontStyle:"italic", color:"#2a2a2a", lineHeight:1.85, margin:0, maxWidth:"88%" },
-  userMessage: { fontFamily:"'Josefin Sans',sans-serif", fontSize:14, fontWeight:400, color:"#111", background:"#F5F5F3", padding:"10px 16px", margin:0, maxWidth:"80%", lineHeight:1.65 },
+  doveLabel: { display:"flex", alignItems:"center", gap:6, marginBottom:10 },
 
-  intakeInputWrap: { display:"flex", alignItems:"flex-end", border:"1.5px solid #1a1a1a", background:"#fff" },
+  // Dove message — italic Georgia
+  doveMessage: {
+    fontFamily:"'Playfair Display',Georgia,serif",
+    fontSize:19,
+    fontWeight:400,
+    fontStyle:"italic",
+    color:"#1a1a1a",
+    lineHeight:1.85,
+    margin:0,
+    maxWidth:"88%",
+  },
+
+  // User message — same serif family, non-italic, slightly smaller, right-aligned
+  userMessage: {
+    fontFamily:"'Playfair Display',Georgia,serif",
+    fontSize:17,
+    fontWeight:400,
+    fontStyle:"normal",
+    color:"#333",
+    lineHeight:1.75,
+    margin:0,
+    maxWidth:"80%",
+    textAlign:"right",
+  },
+
+  intakeInputWrap: { display:"flex", alignItems:"flex-end", border:"1px solid #CDCAC4", background:"#fff" },
   intakeTextarea: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 10px", fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent" },
   intakeSendBtn: { width:50, height:50, background:"#2C5F3A", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0, alignSelf:"flex-end" },
 
