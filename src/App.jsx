@@ -45,7 +45,16 @@ function occasionAck(text) {
 function budgetAck(text) {
   const b = extractBudget(text);
   if (b) return `₹${b.toLocaleString("en-IN")} per gift is a good space to work with`;
-  return "noted — I'll keep value in mind as I curate";
+  return "Noted — I'll keep value in mind as I curate";
+}
+
+// Format whats_in_box — add line breaks between items
+function formatBoxContents(text) {
+  if (!text) return "";
+  return text
+    .replace(/([a-z])([A-Z])/g, "$1 · $2")
+    .replace(/\s*,\s*/g, " · ")
+    .replace(/\s*\|\s*/g, " · ");
 }
 
 export default function App() {
@@ -63,7 +72,6 @@ export default function App() {
   const [doveTyping, setDoveTyping] = useState(false);
   const [conversationCtx, setConversationCtx] = useState({});
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
 
   // Results
   const [view, setView] = useState("chat");
@@ -73,9 +81,11 @@ export default function App() {
   const [sort, setSort] = useState("rec");
   const [conversationHistory, setConversationHistory] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-  const [refineText, setRefineText] = useState("");
-  const [refineOpen, setRefineOpen] = useState(false);
-  const [refineLoading, setRefineLoading] = useState(false);
+
+  // Floating Ask Dove
+  const [askDoveOpen, setAskDoveOpen] = useState(false);
+  const [askDoveText, setAskDoveText] = useState("");
+  const [askDoveLoading, setAskDoveLoading] = useState(false);
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token") ||
@@ -107,8 +117,9 @@ export default function App() {
       .eq("active", true)
       .order("popularity", { ascending: false });
     if (data) {
-      const mapped = data.map((p, i) => ({ ...p, _bg: BG_COLORS[i % BG_COLORS.length], _price: priceAtQty(p.pricing_tiers, 1) }));
-      productsRef.current = mapped;
+      productsRef.current = data.map((p, i) => ({
+        ...p, _bg: BG_COLORS[i % BG_COLORS.length], _price: priceAtQty(p.pricing_tiers, 1),
+      }));
     }
   };
 
@@ -144,7 +155,7 @@ export default function App() {
 
     if (step === 0) {
       const ack = occasionAck(text);
-      const ctx = { ...conversationCtx, occasionAck: ack, occasion: text };
+      const ctx = { ...conversationCtx, occasion: text };
       setConversationCtx(ctx);
       setStep(1);
       doveReply(`${ack}\n\nWhat's your approximate budget per gift?`);
@@ -196,8 +207,8 @@ export default function App() {
       if (data.occasion && data.occasion !== "all") newChips.push(data.occasion.toUpperCase().replace(/-/g," "));
       if (data.audience) newChips.push(data.audience.toUpperCase().replace(/-/g," "));
       if (budget < Infinity) newChips.push(`₹${budget.toLocaleString("en-IN")} / UNIT`);
-      if (data.exclude_edible) newChips.push({ label: "NON-EDIBLE", muted: true });
-      if (data.exclude_fragile) newChips.push({ label: "NON-FRAGILE", muted: true });
+      if (data.exclude_edible) newChips.push({ label:"NON-EDIBLE", muted:true });
+      if (data.exclude_fragile) newChips.push({ label:"NON-FRAGILE", muted:true });
       setChips(newChips);
       setAiMessage(data.summary || "Here are some curated gifts for you.");
       saveConvo("assistant", data.summary || "");
@@ -221,17 +232,17 @@ export default function App() {
     }
   };
 
-  const handleRefine = async () => {
-    const text = refineText.trim();
-    if (!text || refineLoading) return;
-    setRefineText("");
-    setRefineOpen(false);
-    setRefineLoading(true);
+  const handleAskDove = async () => {
+    const text = askDoveText.trim();
+    if (!text || askDoveLoading) return;
+    setAskDoveText("");
+    setAskDoveOpen(false);
+    setAskDoveLoading(true);
     addUserMessage(text);
-    addDoveMessage(`Let me refine your selection based on that.`);
+    addDoveMessage("Let me refine your selection based on that.");
     const richQuery = [conversationCtx.occasion, conversationCtx.budgetText, conversationCtx.prefs, text].filter(Boolean).join(". ");
     await runSearch(richQuery, conversationCtx.budget);
-    setRefineLoading(false);
+    setAskDoveLoading(false);
   };
 
   const toggleHeart = async (productId) => {
@@ -291,17 +302,19 @@ export default function App() {
       <p style={{ fontSize:15, color:"#888", maxWidth:400, lineHeight:1.8, marginBottom:36, textAlign:"center" }}>
         Thank you, {session.client_name.split(" ")[0]}. We'll follow up within 24 hours with availability and final pricing.
       </p>
-      {shortlistedItems.map(p => (
-        <div key={p.id} style={{ display:"flex", alignItems:"center", gap:16, padding:"14px 0", borderBottom:"1px solid #f0f0f0", width:"100%", maxWidth:400 }}>
-          <div style={{ width:48, height:58, background:p._bg, flexShrink:0, overflow:"hidden" }}>
-            {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />}
+      <div style={{ width:"100%", maxWidth:400 }}>
+        {shortlistedItems.map(p => (
+          <div key={p.id} style={{ display:"flex", alignItems:"center", gap:16, padding:"14px 0", borderBottom:"1px solid #f0f0f0" }}>
+            <div style={{ width:48, height:58, background:p._bg, flexShrink:0, overflow:"hidden" }}>
+              {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />}
+            </div>
+            <div>
+              <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:17, fontWeight:500, color:"#1a1a1a", marginBottom:4 }}>{p.name}</div>
+              <div style={{ fontSize:13, color:"#aaa" }}>₹{p._price.toLocaleString("en-IN")}</div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:17, fontWeight:500, color:"#1a1a1a", marginBottom:4 }}>{p.name}</div>
-            <div style={{ fontSize:13, color:"#aaa" }}>₹{p._price.toLocaleString("en-IN")}</div>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 
@@ -314,9 +327,12 @@ export default function App() {
           <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
           <div style={S.logoSub}>by Ikka Dukka · Gift Intelligence</div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           {view === "results" && (
-            <button style={S.backBtn} onClick={() => setView("chat")}>← Dove</button>
+            <button style={S.doveNavBtn} onClick={() => setView("chat")}>
+              <div style={{ ...S.doveDot, width:8, height:8 }}></div>
+              BACK TO DOVE
+            </button>
           )}
           <div style={S.av}>{initials(session.client_name)}</div>
           <div>
@@ -331,7 +347,7 @@ export default function App() {
         <div style={S.chatWrap}>
           <div style={S.messages}>
             {messages.map((m, i) => (
-              <div key={i} style={{ display:"flex", flexDirection:"column", alignItems: m.role==="dove" ? "flex-start" : "flex-end", marginBottom:28 }}>
+              <div key={i} style={{ display:"flex", flexDirection:"column", alignItems: m.role==="dove" ? "flex-start" : "flex-end", marginBottom:32 }}>
                 {m.role === "dove" && (
                   <div style={S.doveLabel}>
                     <div style={S.doveDot}></div>
@@ -346,10 +362,11 @@ export default function App() {
               </div>
             ))}
 
+            {/* Typing indicator */}
             {doveTyping && (
-              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", marginBottom:28 }}>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", marginBottom:32 }}>
                 <div style={S.doveLabel}><div style={S.doveDot}></div><span>Dove</span></div>
-                <div style={{ ...S.doveBubble }}>
+                <div style={S.doveBubble}>
                   <span className="td"></span>
                   <span className="td" style={{ animationDelay:"0.2s" }}></span>
                   <span className="td" style={{ animationDelay:"0.4s" }}></span>
@@ -358,7 +375,7 @@ export default function App() {
             )}
 
             {loading && step === 3 && (
-              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", marginBottom:28 }}>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", marginBottom:32 }}>
                 <div style={S.doveLabel}><div style={S.doveDot}></div><span>Dove</span></div>
                 <div style={S.doveBubble}>Searching through our curated catalogue…</div>
               </div>
@@ -366,7 +383,7 @@ export default function App() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat input area */}
+          {/* Chat input */}
           <div style={S.chatInputArea}>
             {step >= 3 && !loading && results.length > 0 && (
               <button style={S.viewGiftsBtn} onClick={() => setView("results")}>
@@ -375,7 +392,6 @@ export default function App() {
             )}
             <div style={S.chatInputBox}>
               <input
-                ref={inputRef}
                 style={S.chatInput}
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
@@ -384,22 +400,22 @@ export default function App() {
                   step === 0 ? "Tell Dove about the occasion and recipient…" :
                   step === 1 ? "Your budget per gift, e.g. ₹3,000…" :
                   step === 2 ? "Any preferences or things to avoid…" :
-                  "Ask Dove to refine your selection…"
+                  "Ask Dove anything…"
                 }
                 disabled={doveTyping || loading}
                 autoFocus
               />
               <button
-                style={{ ...S.chatSendBtn, ...(!inputText.trim() || doveTyping || loading ? { opacity:0.35, cursor:"not-allowed" } : {}) }}
+                style={{ ...S.chatSendBtn, ...(!inputText.trim()||doveTyping||loading ? { opacity:0.35, cursor:"not-allowed" } : {}) }}
                 onClick={handleSend}
-                disabled={!inputText.trim() || doveTyping || loading}
+                disabled={!inputText.trim()||doveTyping||loading}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
                 </svg>
               </button>
             </div>
-            <div style={{ fontSize:11, color:"#ccc", letterSpacing:"1px", textTransform:"uppercase", textAlign:"center", marginTop:10 }}>
+            <div style={{ fontSize:10, color:"#ccc", letterSpacing:"1.5px", textTransform:"uppercase", textAlign:"center", marginTop:12 }}>
               Your conversation is private and shared only with Rock Dove
             </div>
           </div>
@@ -440,14 +456,15 @@ export default function App() {
 
               {results.length === 0 ? (
                 <div style={{ fontSize:13, color:"#aaa", textAlign:"center", padding:"60px 0", letterSpacing:"2px", textTransform:"uppercase", lineHeight:2 }}>
-                  No gifts found for this search.<br/>
-                  <button style={{ ...S.chip, marginTop:16, cursor:"pointer", background:"#1a1a1a", color:"#fff", border:"none" }} onClick={() => setRefineOpen(true)}>ASK DOVE TO REFINE →</button>
+                  No gifts found.<br/>
+                  <button style={{ ...S.chip, marginTop:16, cursor:"pointer", background:"#1a1a1a", color:"#fff", border:"none" }}
+                    onClick={() => setAskDoveOpen(true)}>ASK DOVE TO REFINE →</button>
                 </div>
               ) : (
                 <div style={S.grid}>
                   {sortedResults.map(p => (
                     <div key={p.id} style={S.card}>
-                      <div style={{ ...S.cardImg, background: p._bg }} onClick={() => { setSelectedProduct(p); logEvent("product_view", p.id); }}>
+                      <div style={{ ...S.cardImg, background:p._bg }} onClick={() => { setSelectedProduct(p); logEvent("product_view", p.id); }}>
                         {p.image_url ? (
                           <img src={p.image_url} alt={p.name} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} />
                         ) : (
@@ -460,10 +477,12 @@ export default function App() {
                           onClick={e => { e.stopPropagation(); toggleHeart(p.id); }}
                         >{hearted.has(p.id) ? "♥" : "♡"}</button>
                       </div>
-                      <div style={{ marginTop:12 }} onClick={() => setSelectedProduct(p)}>
-                        <span style={{ ...S.tier, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
-                          {TIER_LABEL[p.tier]||p.tier}
-                        </span>
+                      <div onClick={() => { setSelectedProduct(p); logEvent("product_view", p.id); }}>
+                        <div style={{ marginTop:12 }}>
+                          <span style={{ ...S.tier, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
+                            {TIER_LABEL[p.tier]||p.tier}
+                          </span>
+                        </div>
                         <div style={S.cardName}>{p.name}</div>
                         <div style={S.cardCat}>{p.category}</div>
                         <div style={S.cardPrice}>₹{p._price.toLocaleString("en-IN")}</div>
@@ -485,7 +504,8 @@ export default function App() {
                   <div style={S.slEmpty}>HEART A GIFT<br/>TO SAVE IT HERE.</div>
                 ) : shortlistedItems.map(p => (
                   <div key={p.id} style={S.slRow}>
-                    <div style={{ width:46, height:54, background:p._bg, flexShrink:0, overflow:"hidden", cursor:"pointer" }} onClick={() => setSelectedProduct(p)}>
+                    <div style={{ width:46, height:54, background:p._bg, flexShrink:0, overflow:"hidden", cursor:"pointer" }}
+                      onClick={() => setSelectedProduct(p)}>
                       {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
@@ -496,34 +516,6 @@ export default function App() {
                   </div>
                 ))}
               </div>
-
-              {/* Ask Dove in results */}
-              <div style={S.doveRefineSection}>
-                <button style={S.doveRefineToggle} onClick={() => setRefineOpen(!refineOpen)}>
-                  <div style={S.doveDot}></div>
-                  <span>ASK DOVE TO REFINE</span>
-                </button>
-                {refineOpen && (
-                  <div style={{ marginTop:10 }}>
-                    <textarea
-                      style={S.refineTextarea}
-                      value={refineText}
-                      onChange={e => setRefineText(e.target.value)}
-                      placeholder="e.g. Nothing edible, prefer something for the home…"
-                      rows={3}
-                      onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleRefine())}
-                    />
-                    <button
-                      style={{ ...S.btnGreen, marginTop:8, ...((!refineText.trim()||refineLoading) ? { opacity:0.4, cursor:"not-allowed", boxShadow:"none" } : {}) }}
-                      onClick={handleRefine}
-                      disabled={!refineText.trim() || refineLoading}
-                    >
-                      {refineLoading ? "REFINING…" : "REFINE →"}
-                    </button>
-                  </div>
-                )}
-              </div>
-
               <div style={S.slFooter}>
                 <div style={S.slTotalRow}>
                   <div style={S.slTotalLbl}>TOTAL</div>
@@ -540,6 +532,51 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* Floating Ask Dove button */}
+          <button style={S.floatingDoveBtn} onClick={() => setAskDoveOpen(true)}>
+            <div style={{ ...S.doveDot, width:8, height:8, flexShrink:0 }}></div>
+            ASK DOVE
+          </button>
+
+          {/* Ask Dove drawer */}
+          {askDoveOpen && (
+            <div style={S.askDoveOverlay} onClick={() => setAskDoveOpen(false)}>
+              <div style={S.askDoveDrawer} onClick={e => e.stopPropagation()}>
+                <div style={S.askDoveHeader}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={S.doveDot}></div>
+                    <span style={{ fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#2C5F3A" }}>Ask Dove to Refine</span>
+                  </div>
+                  <button style={{ background:"none", border:"none", fontSize:22, color:"#aaa", cursor:"pointer", lineHeight:1 }}
+                    onClick={() => setAskDoveOpen(false)}>×</button>
+                </div>
+                <div style={S.askDoveContext}>
+                  {aiMessage && <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:15, fontStyle:"italic", color:"#888", margin:0 }}>{aiMessage}</p>}
+                </div>
+                <div style={S.askDoveInputRow}>
+                  <input
+                    style={S.askDoveInput}
+                    value={askDoveText}
+                    onChange={e => setAskDoveText(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleAskDove()}
+                    placeholder="e.g. Nothing edible, prefer something for the home…"
+                    autoFocus
+                  />
+                  <button
+                    style={{ ...S.btnGreen, width:"auto", padding:"0 24px", boxShadow:"none", ...(!askDoveText.trim() ? { opacity:0.35, cursor:"not-allowed" } : {}) }}
+                    onClick={handleAskDove}
+                    disabled={!askDoveText.trim() || askDoveLoading}
+                  >
+                    {askDoveLoading ? "…" : "REFINE →"}
+                  </button>
+                </div>
+                <div style={{ fontSize:10, letterSpacing:"1px", textTransform:"uppercase", color:"#ccc", marginTop:12 }}>
+                  Dove will update your selection
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -559,16 +596,17 @@ export default function App() {
                 )}
               </div>
               <div style={S.modalContent}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
                   <span style={{ ...S.tier, ...(selectedProduct.tier==="Gold"?S.tierGold:selectedProduct.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
                     {TIER_LABEL[selectedProduct.tier]||selectedProduct.tier}
                   </span>
                   <button
-                    style={{ ...S.hbtn, position:"static", background:"transparent", fontSize:22, color: hearted.has(selectedProduct.id) ? "#9B3A2A" : "#ddd" }}
+                    style={{ background:"none", border:"none", fontSize:24, color: hearted.has(selectedProduct.id) ? "#9B3A2A" : "#ddd", cursor:"pointer" }}
                     onClick={() => toggleHeart(selectedProduct.id)}
                   >{hearted.has(selectedProduct.id) ? "♥" : "♡"}</button>
                 </div>
-                <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:26, fontWeight:500, color:"#1a1a1a", lineHeight:1.25, marginBottom:8 }}>
+
+                <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:26, fontWeight:500, color:"#1a1a1a", lineHeight:1.25, marginBottom:6 }}>
                   {selectedProduct.name}
                 </div>
                 <div style={{ fontSize:11, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:20 }}>
@@ -579,38 +617,40 @@ export default function App() {
                 </div>
 
                 {selectedProduct.description && (
-                  <p style={{ fontSize:14, color:"#555", lineHeight:1.75, marginBottom:20 }}>{selectedProduct.description}</p>
+                  <p style={{ fontSize:14, color:"#555", lineHeight:1.75, marginBottom:24 }}>{selectedProduct.description}</p>
                 )}
 
                 {selectedProduct.whats_in_box && (
-                  <div style={{ marginBottom:20 }}>
-                    <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", marginBottom:8 }}>What's in the box</div>
-                    <p style={{ fontSize:14, color:"#555", lineHeight:1.7 }}>{selectedProduct.whats_in_box}</p>
+                  <div style={{ marginBottom:24, paddingBottom:20, borderBottom:"1px solid #f0f0f0" }}>
+                    <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:10 }}>What's in the box</div>
+                    <p style={{ fontSize:14, color:"#555", lineHeight:1.8 }}>
+                      {formatBoxContents(selectedProduct.whats_in_box)}
+                    </p>
                   </div>
                 )}
 
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px 24px", marginBottom:24 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"16px 24px", marginBottom:28 }}>
                   {selectedProduct.moq && (
                     <div>
-                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:4 }}>Min. Order</div>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Min. Order</div>
                       <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.moq} units</div>
                     </div>
                   )}
                   {selectedProduct.lead_time && (
                     <div>
-                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:4 }}>Lead Time</div>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Lead Time</div>
                       <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.lead_time}</div>
                     </div>
                   )}
                   {selectedProduct.box_dimensions && (
                     <div>
-                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:4 }}>Dimensions</div>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Dimensions</div>
                       <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.box_dimensions}</div>
                     </div>
                   )}
                   {selectedProduct.weight_grams && (
                     <div>
-                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:4 }}>Weight</div>
+                      <div style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", marginBottom:5 }}>Weight</div>
                       <div style={{ fontSize:14, color:"#333" }}>{selectedProduct.weight_grams}g</div>
                     </div>
                   )}
@@ -618,9 +658,9 @@ export default function App() {
 
                 <button
                   style={{ ...S.btnGreen, ...(hearted.has(selectedProduct.id) ? { background:"#9B3A2A", boxShadow:"0 5px 0 #e8b4a8" } : {}) }}
-                  onClick={() => { toggleHeart(selectedProduct.id); }}
+                  onClick={() => toggleHeart(selectedProduct.id)}
                 >
-                  {hearted.has(selectedProduct.id) ? "♥ SAVED TO SHORTLIST" : "♡ SAVE TO SHORTLIST"}
+                  {hearted.has(selectedProduct.id) ? "♥  SAVED TO SHORTLIST" : "♡  SAVE TO SHORTLIST"}
                 </button>
               </div>
             </div>
@@ -644,31 +684,30 @@ const styles = {
   av: { width:36, height:36, borderRadius:"50%", background:"#7A90B0", fontSize:12, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center" },
   cname: { fontSize:12, fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", color:"#1a1a1a", lineHeight:1.3 },
   cco: { fontSize:11, fontWeight:300, color:"#aaa" },
-  backBtn: { background:"none", border:"none", fontSize:11, fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", color:"#2C5F3A", cursor:"pointer", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", marginRight:8 },
+  doveNavBtn: { display:"flex", alignItems:"center", gap:8, background:"#f9f7f4", border:"1px solid #d8d0c8", padding:"8px 16px", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#2C5F3A", cursor:"pointer" },
 
   // Chat
-  chatWrap: { flex:1, display:"flex", flexDirection:"column", maxWidth:720, width:"100%", margin:"0 auto", padding:"0 32px" },
-  messages: { flex:1, overflowY:"auto", padding:"40px 0 16px" },
+  chatWrap: { flex:1, display:"flex", flexDirection:"column", maxWidth:700, width:"100%", margin:"0 auto", padding:"0 32px" },
+  messages: { flex:1, overflowY:"auto", padding:"48px 0 16px" },
 
   doveLabel: { display:"flex", alignItems:"center", gap:7, marginBottom:10, fontSize:10, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", color:"#2C5F3A" },
   doveDot: { width:7, height:7, borderRadius:"50%", background:"#2C5F3A", flexShrink:0 },
 
   doveBubble: {
+    display:"block",
     background:"#f9f7f4",
     border:"1px solid #eeebe6",
-    padding:"18px 22px",
+    padding:"20px 24px",
     fontFamily:"'Cormorant Garamond',Georgia,serif",
-    fontSize:19,
+    fontSize:20,
     color:"#2a2a2a",
-    lineHeight:1.8,
-    maxWidth:"80%",
+    lineHeight:1.85,
+    maxWidth:"82%",
     fontWeight:400,
-    display:"flex",
-    gap:5,
-    alignItems:"center",
   },
 
   userBubble: {
+    display:"block",
     background:"#1a1a1a",
     padding:"14px 20px",
     fontSize:15,
@@ -680,11 +719,11 @@ const styles = {
   },
 
   chatInputArea: { borderTop:"1px solid #eeebe6", padding:"20px 0 28px", flexShrink:0 },
-  viewGiftsBtn: { width:"100%", background:"#2C5F3A", color:"#fff", border:"none", padding:15, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 5px 0 #a8d4b4", marginBottom:14, display:"block" },
+  viewGiftsBtn: { width:"100%", background:"#2C5F3A", color:"#fff", border:"none", padding:15, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 5px 0 #a8d4b4", marginBottom:16, display:"block" },
 
-  chatInputBox: { display:"flex", alignItems:"center", background:"#f5f5f3", border:"1px solid #e0dcd6", padding:"4px 4px 4px 18px", gap:0 },
-  chatInput: { flex:1, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:15, fontWeight:300, color:"#1a1a1a", border:"none", outline:"none", background:"transparent", padding:"12px 0", letterSpacing:"0.3px" },
-  chatSendBtn: { width:44, height:44, background:"#2C5F3A", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0 },
+  chatInputBox: { display:"flex", alignItems:"center", background:"#f7f5f2", border:"1px solid #ddd8d0", gap:0 },
+  chatInput: { flex:1, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:15, fontWeight:300, color:"#1a1a1a", border:"none", outline:"none", background:"transparent", padding:"14px 18px", letterSpacing:"0.3px" },
+  chatSendBtn: { width:50, height:50, background:"#2C5F3A", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0 },
 
   // Results
   chipsRow: { padding:"10px 40px", display:"flex", gap:6, flexWrap:"wrap", borderBottom:"1px solid #eeebe6", flexShrink:0 },
@@ -717,7 +756,7 @@ const styles = {
   cardPrice: { fontSize:14, fontWeight:600, color:"#1a1a1a", marginTop:10 },
 
   // Shortlist
-  sl: { width:260, background:"#fff", borderLeft:"1px solid #e8e2d8", display:"flex", flexDirection:"column", flexShrink:0 },
+  sl: { width:256, background:"#fff", borderLeft:"1px solid #e8e2d8", display:"flex", flexDirection:"column", flexShrink:0 },
   slHdr: { padding:"22px 20px 16px", borderBottom:"1px solid #eeebe6", display:"flex", alignItems:"baseline", justifyContent:"space-between", flexShrink:0 },
   slTitle: { fontSize:11, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", color:"#1a1a1a" },
   slCount: { fontSize:11, fontWeight:400, letterSpacing:"1px", textTransform:"uppercase", color:"#bbb" },
@@ -726,11 +765,6 @@ const styles = {
   slName: { fontSize:12, fontWeight:600, color:"#1a1a1a", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:3 },
   slPrice: { fontSize:12, fontWeight:300, color:"#888" },
   slRm: { background:"none", border:"none", color:"#ccc", cursor:"pointer", fontSize:20, padding:0, lineHeight:1, flexShrink:0 },
-
-  doveRefineSection: { padding:"14px 20px", borderTop:"1px solid #eeebe6", borderBottom:"1px solid #eeebe6" },
-  doveRefineToggle: { display:"flex", alignItems:"center", gap:8, background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#2C5F3A", padding:0 },
-  refineTextarea: { width:"100%", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:13, fontWeight:300, color:"#1a1a1a", border:"1px solid #e0dcd6", padding:"10px 12px", outline:"none", background:"#fafaf8", resize:"none", lineHeight:1.6, letterSpacing:"0.3px" },
-
   slFooter: { padding:20, borderTop:"1px solid #eeebe6", flexShrink:0 },
   slTotalRow: { display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:16, paddingBottom:14, borderBottom:"1px solid #f0ece4" },
   slTotalLbl: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa" },
@@ -738,11 +772,21 @@ const styles = {
   slNote: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#ccc", textAlign:"center", marginTop:12 },
   btnGreen: { width:"100%", background:"#2C5F3A", color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 5px 0 #a8d4b4", display:"block" },
 
+  // Floating Ask Dove
+  floatingDoveBtn: { position:"fixed", bottom:32, left:"50%", transform:"translateX(-50%)", background:"#fff", border:"1.5px solid #2C5F3A", padding:"12px 24px", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#2C5F3A", cursor:"pointer", boxShadow:"0 4px 20px rgba(0,0,0,0.12)", display:"flex", alignItems:"center", gap:10, zIndex:100 },
+
+  askDoveOverlay: { position:"fixed", inset:0, background:"rgba(20,20,20,0.4)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:200, paddingBottom:0 },
+  askDoveDrawer: { background:"#fff", width:"100%", maxWidth:680, padding:"28px 32px 32px", borderTop:"2px solid #2C5F3A" },
+  askDoveHeader: { display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 },
+  askDoveContext: { background:"#f9f7f4", padding:"12px 16px", marginBottom:16, borderLeft:"2px solid #2C5F3A" },
+  askDoveInputRow: { display:"flex", gap:12, alignItems:"stretch" },
+  askDoveInput: { flex:1, fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:14, fontWeight:300, color:"#1a1a1a", border:"1px solid #ddd8d0", padding:"12px 16px", outline:"none", background:"transparent", letterSpacing:"0.3px" },
+
   // Product modal
-  modalOverlay: { position:"fixed", inset:0, background:"rgba(20,20,20,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:24 },
-  modalBox: { background:"#fff", width:"100%", maxWidth:860, maxHeight:"90vh", overflowY:"auto", position:"relative" },
-  modalClose: { position:"absolute", top:16, right:20, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
-  modalInner: { display:"flex", minHeight:500 },
-  modalImgWrap: { width:380, flexShrink:0, background:"#f5f0eb", minHeight:460 },
+  modalOverlay: { position:"fixed", inset:0, background:"rgba(10,10,10,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:32 },
+  modalBox: { background:"#fff", width:"100%", maxWidth:880, maxHeight:"92vh", overflowY:"auto", position:"relative" },
+  modalClose: { position:"absolute", top:16, right:20, background:"none", border:"none", fontSize:30, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
+  modalInner: { display:"flex", minHeight:520 },
+  modalImgWrap: { width:400, flexShrink:0, background:"#f5f0eb", minHeight:480, position:"sticky", top:0 },
   modalContent: { flex:1, padding:"40px 36px", overflowY:"auto" },
 };
