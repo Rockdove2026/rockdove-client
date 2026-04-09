@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
 
 const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
@@ -28,17 +28,19 @@ function initials(name) {
 
 function extractBudget(q) {
   const m = q.match(
-    /under\s*₹?\s*(\d[\d,]*)|below\s*₹?\s*(\d[\d,]*)|₹\s*(\d[\d,]*)|rs\.?\s*(\d[\d,]*)|(\d[\d,]*)\s*(each|per\s*unit|\/unit)/i
+    /under\s*₹?\s*(\d[\d,]*)|below\s*₹?\s*(\d[\d,]*)|budget\s*(is|of|:)?\s*₹?\s*(\d[\d,]*)|₹\s*(\d[\d,]*)|rs\.?\s*(\d[\d,]*)|(\d[\d,]*)\s*(each|per\s*unit|\/unit)/i
   );
   if (m) {
-    const raw = m[1] || m[2] || m[3] || m[4] || m[5];
-    return parseInt(raw.replace(/,/g, ""));
+    const raw = m[1] || m[2] || m[4] || m[5] || m[6] || m[7];
+    if (raw) return parseInt(raw.replace(/,/g, ""));
   }
   return null;
 }
 
 function scoreProduct(product, includeTags, excludeTags) {
-  const productTags = (product.tags || []).map(t => t.toLowerCase());
+  const productTags = (product.tags || []).map(t =>
+    (typeof t === "string" ? t : t.tag || t.name || "").toLowerCase()
+  );
   if (excludeTags?.length) {
     for (const tag of excludeTags) {
       if (productTags.includes(tag.toLowerCase())) return -1;
@@ -57,6 +59,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [products, setProducts] = useState([]);
+  const productsRef = useRef([]);
   const [results, setResults] = useState([]);
   const [hearted, setHearted] = useState(new Set());
   const [query, setQuery] = useState("");
@@ -95,11 +98,13 @@ export default function App() {
       .eq("active", true)
       .order("popularity", { ascending: false });
     if (data) {
-      setProducts(data.map((p, i) => ({
+      const mapped = data.map((p, i) => ({
         ...p,
         _bg: BG_COLORS[i % BG_COLORS.length],
         _price: priceAtQty(p.pricing_tiers, 1),
-      })));
+      }));
+      setProducts(mapped);
+      productsRef.current = mapped;
     }
   };
 
@@ -129,6 +134,9 @@ export default function App() {
     setView("results");
     logEvent("query", null, { query: q });
     saveConversation("user", q);
+
+    // Use ref so we always have latest products even if state hasn't propagated
+    const allProducts = productsRef.current;
 
     try {
       const res = await fetch(CATALOGUE_URL + "/interpret-query", {
@@ -164,15 +172,13 @@ export default function App() {
         include_tags: includeTags, exclude_tags: excludeTags,
       });
 
-      // Filter + score by tags, budget, exclusions
-      let filtered = products
+      const filtered = allProducts
         .filter(p => {
           const price = priceAtQty(p.pricing_tiers, qty);
-          if (budget < Infinity && price > budget * 1.1) return false;
+          if (budget < Infinity && price > budget * 1.15) return false;
           if (data.exclude_edible && p.edible) return false;
           if (data.exclude_fragile && p.fragile) return false;
-          const tagScore = scoreProduct(p, includeTags, excludeTags);
-          if (tagScore === -1) return false;
+          if (scoreProduct(p, includeTags, excludeTags) === -1) return false;
           return true;
         })
         .map(p => ({
@@ -180,12 +186,14 @@ export default function App() {
           _price: priceAtQty(p.pricing_tiers, qty),
           _tagScore: scoreProduct(p, includeTags, excludeTags),
         }))
-        .sort((a, b) => b._tagScore - a._tagScore || (b.popularity || 0) - (a.popularity || 0));
+        .sort((a, b) =>
+          b._tagScore - a._tagScore || (b.popularity || 0) - (a.popularity || 0)
+        );
 
       setResults(filtered.slice(0, 12));
       setSort("rec");
     } catch (e) {
-      setResults(products.slice(0, 12));
+      setResults(allProducts.slice(0, 12));
       setAiMessage("Here are some of our curated gifts. Refine your search to narrow it down.");
     }
     setLoading(false);
@@ -231,40 +239,34 @@ export default function App() {
   if (notFound) return (
     <div style={S.center}>
       <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
-      <div style={{ fontSize: 15, fontWeight: 500, color: "#1a1a1a", marginTop: 24, marginBottom: 8 }}>
-        This link is invalid or has expired.
-      </div>
-      <div style={{ fontSize: 12, color: "#aaa", letterSpacing: "0.5px" }}>
-        Please contact your Rock Dove curator for a new link.
-      </div>
+      <div style={{ fontSize: 17, fontWeight: 500, color: "#1a1a1a", marginTop: 28, marginBottom: 10 }}>This link is invalid or has expired.</div>
+      <div style={{ fontSize: 14, color: "#aaa" }}>Please contact your Rock Dove curator for a new link.</div>
     </div>
   );
 
   if (!session) return (
     <div style={S.center}>
       <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
-      <div style={{ fontSize: 11, color: "#bbb", letterSpacing: "2px", textTransform: "uppercase", marginTop: 20 }}>
-        Loading your experience…
-      </div>
+      <div style={{ fontSize: 13, color: "#bbb", letterSpacing: "2px", textTransform: "uppercase", marginTop: 24 }}>Loading your experience…</div>
     </div>
   );
 
   if (view === "submitted") return (
     <div style={S.center}>
-      <div style={{ width: 52, height: 52, borderRadius: "50%", background: "#2C5F3A", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, marginBottom: 24 }}>✓</div>
-      <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 28, fontWeight: 500, color: "#1a1a1a", marginBottom: 10 }}>Shortlist sent</div>
-      <div style={{ fontSize: 13, color: "#888", maxWidth: 380, lineHeight: 1.8, marginBottom: 36, textAlign: "center" }}>
+      <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#2C5F3A", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, marginBottom: 24 }}>✓</div>
+      <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 32, fontWeight: 500, color: "#1a1a1a", marginBottom: 12 }}>Shortlist sent</div>
+      <div style={{ fontSize: 15, color: "#888", maxWidth: 400, lineHeight: 1.8, marginBottom: 40, textAlign: "center" }}>
         Thank you, {session.client_name.split(" ")[0]}. We'll follow up within 24 hours with availability and final pricing.
       </div>
-      <div style={{ width: "100%", maxWidth: 380 }}>
+      <div style={{ width: "100%", maxWidth: 400 }}>
         {shortlistedItems.map(p => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid #f0f0f0" }}>
-            <div style={{ width: 44, height: 52, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
+          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 0", borderBottom: "1px solid #f0f0f0" }}>
+            <div style={{ width: 48, height: 58, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
               {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
             </div>
             <div>
-              <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 15, fontWeight: 500, color: "#1a1a1a", marginBottom: 3 }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: "#aaa" }}>₹{p._price.toLocaleString("en-IN")}</div>
+              <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 17, fontWeight: 500, color: "#1a1a1a", marginBottom: 4 }}>{p.name}</div>
+              <div style={{ fontSize: 14, color: "#aaa" }}>₹{p._price.toLocaleString("en-IN")}</div>
             </div>
           </div>
         ))}
@@ -281,7 +283,7 @@ export default function App() {
           <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
           <div style={S.logoSub}>by Ikka Dukka · Gift Intelligence</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={S.av}>{initials(session.client_name)}</div>
           <div>
             <div style={S.cname}>{session.client_name}</div>
@@ -312,19 +314,11 @@ export default function App() {
             </div>
           </div>
           <div style={S.sugs}>
-            {[
-              "Diwali · leadership team",
-              "Client thank-you",
-              "New joiner onboarding",
-              "Work anniversary",
-            ].map((s, i) => {
+            {["Diwali · leadership team", "Client thank-you", "New joiner onboarding", "Work anniversary"].map((s, i) => {
               const st = SUG_STYLES[i % SUG_STYLES.length];
               return (
-                <span
-                  key={s}
-                  style={{ ...S.sug, color: st.color, border: `1px solid ${st.border}`, background: st.bg }}
-                  onClick={() => { setQuery(s); doSearch(s); }}
-                >{s}</span>
+                <span key={s} style={{ ...S.sug, color: st.color, border: `1px solid ${st.border}`, background: st.bg }}
+                  onClick={() => { setQuery(s); doSearch(s); }}>{s}</span>
               );
             })}
           </div>
@@ -364,10 +358,9 @@ export default function App() {
               <div style={S.aiTxt}>
                 {aiMessage}
                 {aiQuestion && (
-                  <span
-                    style={S.aiQ}
-                    onClick={() => { setQuery(aiQuestion); doSearch(aiQuestion); }}
-                  > {aiQuestion} →</span>
+                  <span style={S.aiQ} onClick={() => { setQuery(aiQuestion); doSearch(aiQuestion); }}>
+                    {" "}{aiQuestion} →
+                  </span>
                 )}
               </div>
             </div>
@@ -385,7 +378,7 @@ export default function App() {
               </div>
 
               {loading ? (
-                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "2px", textTransform: "uppercase" }}>
+                <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "2px", textTransform: "uppercase" }}>
                   Curating your gifts…
                 </div>
               ) : (
@@ -397,7 +390,7 @@ export default function App() {
                           <img src={p.image_url} alt={p.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
                         ) : (
                           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <div style={{ fontSize: 9, letterSpacing: "2px", color: "#ccc", textTransform: "uppercase" }}>{p.category}</div>
+                            <div style={{ fontSize: 11, letterSpacing: "2px", color: "#ccc", textTransform: "uppercase" }}>{p.category}</div>
                           </div>
                         )}
                         <button
@@ -405,7 +398,7 @@ export default function App() {
                           onClick={e => { e.stopPropagation(); toggleHeart(p.id); }}
                         >{hearted.has(p.id) ? "♥" : "♡"}</button>
                       </div>
-                      <div style={{ marginTop: 11 }}>
+                      <div style={{ marginTop: 12 }}>
                         <span style={{ ...S.tier, ...(p.tier === "Gold" ? S.tierGold : p.tier === "Platinum" ? S.tierPlat : S.tierSilv) }}>
                           {TIER_LABEL[p.tier] || p.tier}
                         </span>
@@ -430,7 +423,7 @@ export default function App() {
                   <div style={S.slEmpty}>Heart a gift<br />to save it here.</div>
                 ) : shortlistedItems.map(p => (
                   <div key={p.id} style={S.slRow}>
-                    <div style={{ width: 44, height: 52, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
+                    <div style={{ width: 46, height: 54, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
                       {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -468,72 +461,72 @@ const styles = {
   center: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", textAlign: "center", padding: 32, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif" },
 
   logoWrap: { display: "flex", alignItems: "baseline", gap: 5 },
-  logoR: { fontSize: 14, fontWeight: 600, letterSpacing: 5, textTransform: "uppercase", color: "#1a1a1a" },
-  logoD: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 20, fontStyle: "italic", color: "#2C5F3A", fontWeight: 500 },
-  logoSub: { fontSize: 9, letterSpacing: "2px", textTransform: "uppercase", color: "#bbb", marginTop: 3, fontWeight: 300 },
+  logoR: { fontSize: 15, fontWeight: 600, letterSpacing: 5, textTransform: "uppercase", color: "#1a1a1a" },
+  logoD: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 21, fontStyle: "italic", color: "#2C5F3A", fontWeight: 500 },
+  logoSub: { fontSize: 10, letterSpacing: "2px", textTransform: "uppercase", color: "#bbb", marginTop: 3, fontWeight: 300 },
 
-  hdr: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 40px", height: 60, background: "#fff", borderBottom: "1px solid #e8e2d8", flexShrink: 0 },
-  av: { width: 32, height: 32, borderRadius: "50%", background: "#7A90B0", fontSize: 10, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" },
-  cname: { fontSize: 11, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color: "#1a1a1a", lineHeight: 1.3 },
-  cco: { fontSize: 10, fontWeight: 300, color: "#aaa" },
+  hdr: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 40px", height: 64, background: "#fff", borderBottom: "1px solid #e8e2d8", flexShrink: 0 },
+  av: { width: 36, height: 36, borderRadius: "50%", background: "#7A90B0", fontSize: 12, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" },
+  cname: { fontSize: 12, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color: "#1a1a1a", lineHeight: 1.3 },
+  cco: { fontSize: 11, fontWeight: 300, color: "#aaa" },
 
   landing: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 40px", textAlign: "center" },
-  welcome: { fontSize: 10, fontWeight: 600, letterSpacing: "3px", textTransform: "uppercase", color: "#C27B2A", marginBottom: 28 },
-  h1: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 48, fontWeight: 500, color: "#1a1a1a", lineHeight: 1.15, maxWidth: 480, marginBottom: 48 },
-  searchWrap: { width: "100%", maxWidth: 560, marginBottom: 32 },
+  welcome: { fontSize: 12, fontWeight: 600, letterSpacing: "3px", textTransform: "uppercase", color: "#C27B2A", marginBottom: 28 },
+  h1: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 52, fontWeight: 500, color: "#1a1a1a", lineHeight: 1.15, maxWidth: 520, marginBottom: 48 },
+  searchWrap: { width: "100%", maxWidth: 580, marginBottom: 32 },
   searchRow: { display: "flex", alignItems: "stretch", borderBottom: "1.5px solid #1a1a1a", paddingBottom: 8, gap: 16 },
-  inp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 14, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", outline: "none", background: "transparent", padding: "4px 0" },
-  sugs: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 560 },
-  sug: { fontSize: 10, fontWeight: 600, cursor: "pointer", padding: "6px 14px", letterSpacing: "0.5px" },
+  inp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 15, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", outline: "none", background: "transparent", padding: "6px 0" },
+  sugs: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 580 },
+  sug: { fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "7px 16px", letterSpacing: "0.5px" },
 
   qbar: { padding: "0 40px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "stretch", background: "#fff", flexShrink: 0 },
-  qbarInp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 13, fontWeight: 300, letterSpacing: "1px", color: "#1a1a1a", border: "none", padding: "15px 0", outline: "none", background: "transparent" },
+  qbarInp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 14, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", padding: "16px 0", outline: "none", background: "transparent" },
 
-  btnDark: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 26px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", margin: "9px 0" },
-  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 14, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
+  btnDark: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 28px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", margin: "10px 0" },
+  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 15, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
 
-  chipsRow: { padding: "9px 40px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid #eeebe6", flexShrink: 0 },
-  chip: { fontSize: 9, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#2C5F3A", padding: "4px 10px", border: "1px solid #a8c8b4", background: "#eaf2ec" },
-  chipMuted: { fontSize: 9, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", padding: "4px 10px", border: "1px solid #eee", background: "#fafafa" },
+  chipsRow: { padding: "10px 40px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid #eeebe6", flexShrink: 0 },
+  chip: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#2C5F3A", padding: "5px 12px", border: "1px solid #a8c8b4", background: "#eaf2ec" },
+  chipMuted: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", padding: "5px 12px", border: "1px solid #eee", background: "#fafafa" },
 
-  aiBar: { padding: "12px 40px", background: "#f9f7f4", borderBottom: "1px solid #eeebe6", display: "flex", gap: 12, alignItems: "center", flexShrink: 0 },
-  aiDot: { width: 5, height: 5, borderRadius: "50%", background: "#2C5F3A", flexShrink: 0 },
-  aiLbl: { fontSize: 8, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#2C5F3A", flexShrink: 0 },
-  aiTxt: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 15, fontStyle: "italic", color: "#555", fontWeight: 400 },
+  aiBar: { padding: "14px 40px", background: "#f9f7f4", borderBottom: "1px solid #eeebe6", display: "flex", gap: 14, alignItems: "center", flexShrink: 0 },
+  aiDot: { width: 6, height: 6, borderRadius: "50%", background: "#2C5F3A", flexShrink: 0 },
+  aiLbl: { fontSize: 9, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#2C5F3A", flexShrink: 0 },
+  aiTxt: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 16, fontStyle: "italic", color: "#555", fontWeight: 400 },
   aiQ: { color: "#2C5F3A", cursor: "pointer", borderBottom: "1px solid #2C5F3A", paddingBottom: 1 },
 
   body: { display: "flex", flex: 1, overflow: "hidden" },
-  gridWrap: { flex: 1, padding: "26px 40px", overflowY: "auto" },
-  meta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
-  cnt: { fontSize: 9, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#aaa" },
-  sortBtn: { fontSize: 9, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", background: "none", border: "none", cursor: "pointer", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", padding: "5px 10px" },
+  gridWrap: { flex: 1, padding: "28px 40px", overflowY: "auto" },
+  meta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+  cnt: { fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#aaa" },
+  sortBtn: { fontSize: 11, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color: "#bbb", background: "none", border: "none", cursor: "pointer", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", padding: "5px 12px" },
   sortOn: { color: "#1a1a1a", borderBottom: "1.5px solid #1a1a1a" },
 
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "24px 14px" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "28px 16px" },
   card: { cursor: "pointer" },
   cardImg: { width: "100%", paddingBottom: "116%", position: "relative", overflow: "hidden" },
-  hbtn: { position: "absolute", top: 10, right: 10, width: 28, height: 28, background: "rgba(255,255,255,0.92)", border: "none", fontSize: 13, color: "#ccc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  hbtn: { position: "absolute", top: 10, right: 10, width: 30, height: 30, background: "rgba(255,255,255,0.92)", border: "none", fontSize: 14, color: "#ccc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
   hbtnOn: { color: "#9B3A2A" },
-  tier: { fontSize: 8, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", display: "inline-block", padding: "3px 7px" },
+  tier: { fontSize: 9, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", display: "inline-block", padding: "3px 8px" },
   tierGold: { color: "#7a5c20", background: "#fdf5e6", border: "1px solid #e8d5a0" },
   tierPlat: { color: "#2a4a7a", background: "#eef3fa", border: "1px solid #b8cce8" },
   tierSilv: { color: "#666", background: "#f5f5f5", border: "1px solid #e0e0e0" },
-  cardName: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 16, fontWeight: 500, color: "#1a1a1a", marginTop: 5, lineHeight: 1.3 },
-  cardCat: { fontSize: 9, fontWeight: 300, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", marginTop: 3 },
-  cardPrice: { fontSize: 12, fontWeight: 600, letterSpacing: "0.5px", color: "#1a1a1a", marginTop: 8 },
+  cardName: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 17, fontWeight: 500, color: "#1a1a1a", marginTop: 8, lineHeight: 1.3 },
+  cardCat: { fontSize: 11, fontWeight: 300, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", marginTop: 4 },
+  cardPrice: { fontSize: 14, fontWeight: 600, letterSpacing: "0.5px", color: "#1a1a1a", marginTop: 10 },
 
-  sl: { width: 240, background: "#fff", borderLeft: "1px solid #e8e2d8", display: "flex", flexDirection: "column", flexShrink: 0 },
-  slHdr: { padding: "20px 20px 16px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "baseline", justifyContent: "space-between", flexShrink: 0 },
-  slTitle: { fontSize: 10, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#1a1a1a" },
-  slCount: { fontSize: 10, fontWeight: 400, letterSpacing: "1px", color: "#bbb" },
-  slEmpty: { padding: "40px 20px", fontSize: 10, letterSpacing: "1.5px", textTransform: "uppercase", color: "#ccc", fontWeight: 400, lineHeight: 1.8, textAlign: "center" },
+  sl: { width: 248, background: "#fff", borderLeft: "1px solid #e8e2d8", display: "flex", flexDirection: "column", flexShrink: 0 },
+  slHdr: { padding: "22px 20px 16px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "baseline", justifyContent: "space-between", flexShrink: 0 },
+  slTitle: { fontSize: 11, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#1a1a1a" },
+  slCount: { fontSize: 11, fontWeight: 400, letterSpacing: "1px", color: "#bbb" },
+  slEmpty: { padding: "40px 20px", fontSize: 12, letterSpacing: "1.5px", textTransform: "uppercase", color: "#ccc", fontWeight: 400, lineHeight: 1.8, textAlign: "center" },
   slRow: { display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: "1px solid #f5f0e8" },
-  slName: { fontSize: 11, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 },
-  slPrice: { fontSize: 11, fontWeight: 300, color: "#888" },
-  slRm: { background: "none", border: "none", color: "#ccc", cursor: "pointer", fontSize: 18, padding: 0, lineHeight: 1, flexShrink: 0 },
+  slName: { fontSize: 12, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 4 },
+  slPrice: { fontSize: 12, fontWeight: 300, color: "#888" },
+  slRm: { background: "none", border: "none", color: "#ccc", cursor: "pointer", fontSize: 20, padding: 0, lineHeight: 1, flexShrink: 0 },
   slFooter: { padding: 20, borderTop: "1px solid #eeebe6", flexShrink: 0 },
   slTotalRow: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #f0ece4" },
-  slTotalLbl: { fontSize: 9, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#aaa" },
-  slTotalVal: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 22, fontWeight: 500, color: "#1a1a1a" },
-  slNote: { fontSize: 9, fontWeight: 300, letterSpacing: "1px", textTransform: "uppercase", color: "#ccc", textAlign: "center", marginTop: 12 },
+  slTotalLbl: { fontSize: 10, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#aaa" },
+  slTotalVal: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 24, fontWeight: 500, color: "#1a1a1a" },
+  slNote: { fontSize: 10, fontWeight: 300, letterSpacing: "1px", textTransform: "uppercase", color: "#ccc", textAlign: "center", marginTop: 12 },
 };
