@@ -6,12 +6,44 @@ const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
 
 const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","#F5F0E8","#EEF1F7","#F2EEF5"];
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
-const SUGGESTIONS = [
-  "Diwali gifts for 50 senior bankers, around ₹3,000 each",
-  "Something thoughtful for a client who loves wellness",
-  "Premium client thank-you, nothing edible, needs to be couriered",
-  "Onboarding gift for new joiners under ₹1,500",
-];
+const DOVE_BLUE = "#6B8CAE";
+
+// Dove's system prompt for intake — extracts who/qty/date/occasion
+const INTAKE_SYSTEM = `You are Dove, gifting concierge for Rock Dove by Ikka Dukka — a premium Indian gifting platform.
+
+Your job: Extract a gifting brief from what the client says. Be warm, brief, and specific.
+
+FIRST: Check if this is a gifting query. If it's clearly not (weather, news, general questions), reply with a gentle redirect asking about their gifting need. Do not generate gift results for non-gifting queries.
+
+If it IS a gifting query, extract:
+- recipient: who they're gifting (e.g. "senior bankers", "leadership team", "a client")  
+- quantity: how many gifts (number or "one", "single", etc.)
+- occasion: the occasion or reason (e.g. Diwali, anniversary, onboarding, thank-you)
+- deadline: when needed by (if mentioned)
+- budget: per-unit budget in INR (if mentioned)
+- restrictions: anything to avoid (edible, fragile, etc.)
+
+If the query is a valid gifting brief with enough info, set ready: true.
+If key info is missing (especially who/occasion), set ready: false and ask ONE specific follow-up question.
+
+Always respond with valid JSON only — no markdown, no preamble:
+{
+  "response": "Your warm reply here (1-2 sentences max)",
+  "ready": true or false,
+  "is_gifting_query": true or false,
+  "filters": {
+    "occasion": "diwali|birthday|anniversary|corporate|thank-you|welcome|other",
+    "audience": "senior-management|employees-mass|client|colleague|family|other",
+    "budget": 3000,
+    "qty": 50,
+    "deadline": "October 20" or null,
+    "exclude_edible": false,
+    "exclude_fragile": false,
+    "include_tags": [],
+    "exclude_tags": [],
+    "query": "rich natural language query capturing all context for product ranking"
+  }
+}`;
 
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
@@ -27,32 +59,55 @@ function formatBox(text) {
   return text.replace(/([a-z])([A-Z])/g,"$1 · $2").replace(/\s*,\s*/g," · ").replace(/\s*\|\s*/g," · ");
 }
 
+function BigLogo() {
+  return (
+    <div style={{ display:"flex", alignItems:"baseline", justifyContent:"center", gap:6 }}>
+      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:58, fontWeight:700, letterSpacing:14, textTransform:"uppercase", color:"#111", lineHeight:1 }}>Rock</span>
+      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:66, fontStyle:"italic", color:DOVE_BLUE, fontWeight:400, letterSpacing:2, lineHeight:1 }}>Dove</span>
+    </div>
+  );
+}
+
+function SmallLogo({ onClick }) {
+  return (
+    <button onClick={onClick} style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"baseline", gap:2, padding:0 }}>
+      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:14, fontWeight:700, letterSpacing:4, textTransform:"uppercase", color:"#111" }}>Rock</span>
+      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontStyle:"italic", color:DOVE_BLUE, fontWeight:400, marginLeft:2 }}>Dove</span>
+    </button>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const productsRef = useRef([]);
 
-  // Search state
+  // Intake state
+  const [intakeInput, setIntakeInput] = useState("");
+  const [intakeMessages, setIntakeMessages] = useState([]); // [{role, text}]
+  const [intakeHistory, setIntakeHistory] = useState([]); // for API
+  const [intakeLoading, setIntakeLoading] = useState(false);
+  const [pastQueries, setPastQueries] = useState([]);
+
+  // Results state
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [aiSummary, setAiSummary] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [chips, setChips] = useState([]);
-  const [conversationHistory, setConversationHistory] = useState([]);
+  const [lastFilters, setLastFilters] = useState(null);
   const [sort, setSort] = useState("rec");
-  const [view, setView] = useState("home"); // home | results | submitted
+  const [view, setView] = useState("intake"); // intake | results | submitted
 
   // Shortlist
   const [hearted, setHearted] = useState(new Set());
   const heartedRef = useRef({});
   const [shortlistOpen, setShortlistOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // Product detail
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  const queryInputRef = useRef(null);
+  const intakeEndRef = useRef(null);
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token") ||
@@ -61,14 +116,20 @@ export default function App() {
     else setNotFound(true);
   }, []);
 
+  useEffect(() => { intakeEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [intakeMessages, intakeLoading]);
+
   const loadSession = async (token) => {
     try {
       const { data, error } = await supabase.from("rd_sessions").select("*").eq("token", token).single();
       if (error || !data) { setNotFound(true); return; }
       setSession(data);
       supabase.from("rd_sessions").update({ last_active: new Date().toISOString() }).eq("id", data.id);
-      await loadProducts();
-      loadShortlist(data.id);
+      await Promise.all([loadProducts(), loadShortlist(data.id), loadPastQueries(data.id)]);
+
+      // Dove's opening message
+      const opening = `Hello ${data.client_name.split(" ")[0]}. To find the right gifts, tell me: who are you gifting, what's the occasion, how many, and when do you need them by?`;
+      setIntakeMessages([{ role:"dove", text: opening }]);
+      setIntakeHistory([{ role:"assistant", content: opening }]);
     } catch(e) { setNotFound(true); }
   };
 
@@ -83,9 +144,7 @@ export default function App() {
       }
       if (data) {
         productsRef.current = data.map((p,i) => ({
-          ...p,
-          _bg: BG_COLORS[i % BG_COLORS.length],
-          _price: priceAtQty(p.pricing_tiers, 1),
+          ...p, _bg: BG_COLORS[i%BG_COLORS.length], _price: priceAtQty(p.pricing_tiers, 1),
           _tags: (p.product_tags||[]).map(t=>(t.tag||"").toLowerCase()).filter(Boolean),
         }));
       }
@@ -95,67 +154,152 @@ export default function App() {
   const loadShortlist = async (sessionId) => {
     try {
       const { data } = await supabase.from("rd_shortlists").select("product_id").eq("session_id", sessionId);
-      if (data) setHearted(new Set(data.map(r => r.product_id)));
+      if (data?.length > 0) {
+        const ids = new Set(data.map(r => r.product_id));
+        setHearted(ids);
+        setTimeout(() => {
+          ids.forEach(id => {
+            const p = productsRef.current.find(x => x.id === id);
+            if (p) heartedRef.current[id] = p;
+          });
+        }, 1200);
+      }
     } catch {}
   };
 
-  const logEvent = useCallback(async (type, pid=null, meta={}) => {
-    if (!session) return;
-    try { await supabase.from("rd_events").insert([{ session_id: session.id, event_type: type, product_id: pid, metadata: meta }]); } catch {}
-  }, [session]);
+  const loadPastQueries = async (sessionId) => {
+    try {
+      const { data } = await supabase.from("rd_conversations")
+        .select("message").eq("session_id", sessionId).eq("role", "user")
+        .order("created_at", { ascending: false }).limit(6);
+      if (data?.length > 0) {
+        setPastQueries(data.map(d=>d.message).filter(m=>!m.startsWith("Submitted")).slice(0,4));
+      }
+    } catch {}
+  };
 
   const saveConvo = useCallback(async (role, message) => {
     if (!session) return;
     try { await supabase.from("rd_conversations").insert([{ session_id: session.id, role, message }]); } catch {}
   }, [session]);
 
-  const handleSearch = async (q) => {
-    const searchQ = q || query;
-    if (!searchQ.trim() || searching) return;
-    setQuery(searchQ);
-    setSearching(true);
-    setFollowUp("");
-    setView("results");
-    saveConvo("user", searchQ);
+  const logEvent = useCallback(async (type, pid=null, meta={}) => {
+    if (!session) return;
+    try { await supabase.from("rd_events").insert([{ session_id: session.id, event_type: type, product_id: pid, metadata: meta }]); } catch {}
+  }, [session]);
 
-    const allProducts = productsRef.current;
+  // Handle intake submission
+  const handleIntakeSend = async () => {
+    const text = intakeInput.trim();
+    if (!text || intakeLoading) return;
+    setIntakeInput("");
+
+    const newMessages = [...intakeMessages, { role:"user", text }];
+    setIntakeMessages(newMessages);
+    setIntakeLoading(true);
+    saveConvo("user", text);
 
     try {
-      // Call Dove AI to interpret the query
-      const doveRes = await fetch(CATALOGUE_URL + "/dove-chat", {
+      const res = await fetch(CATALOGUE_URL + "/dove-chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: searchQ, conversation_history: conversationHistory }),
+        body: JSON.stringify({
+          message: text,
+          conversation_history: intakeHistory,
+          system_override: INTAKE_SYSTEM,
+        }),
       });
-      const doveData = await doveRes.json();
+      const data = await res.json();
 
-      // Update conversation history
-      const newHistory = [
-        ...conversationHistory,
-        { role: "user", content: searchQ },
-        { role: "assistant", content: doveData.response },
-      ];
-      setConversationHistory(newHistory);
-      saveConvo("dove", doveData.response);
+      const doveReply = data.response || "Tell me more about what you're looking for.";
+      setIntakeMessages([...newMessages, { role:"dove", text: doveReply }]);
+      const newHistory = [...intakeHistory, { role:"user", content:text }, { role:"assistant", content:doveReply }];
+      setIntakeHistory(newHistory);
+      saveConvo("dove", doveReply);
 
-      // If Dove has a follow-up question, show it softly
-      if (!doveData.ready && doveData.response && !doveData.response.toLowerCase().includes("hello")) {
-        setFollowUp(doveData.response);
+      if (!data.is_gifting_query) {
+        // Not a gifting query — Dove has already responded with a redirect, stay on intake
+        setIntakeLoading(false);
+        return;
       }
 
-      const filters = doveData.filters || {};
-      const qty = filters.qty || 1;
-      const budget = filters.budget || null;
+      if (data.ready && data.filters) {
+        // Brief is complete — go to results
+        setLastFilters(data.filters);
+        const briefQuery = data.filters.query || text;
+        setQuery(briefQuery);
+        setPastQueries(prev => [text, ...prev.filter(p=>p!==text)].slice(0,4));
+        setIntakeLoading(false);
+        await runCuration(data.filters, briefQuery);
+        setView("results");
+      } else {
+        // Dove asked a follow-up — stay on intake
+        setIntakeLoading(false);
+      }
+    } catch(e) {
+      console.error(e);
+      setIntakeMessages(prev => [...prev, { role:"dove", text:"I had a moment of difficulty. Could you tell me more about who you're gifting?" }]);
+      setIntakeLoading(false);
+    }
+  };
 
-      // Build chips
-      const newChips = [];
-      if (filters.occasion && filters.occasion !== "other") newChips.push(filters.occasion.toUpperCase().replace(/-/g," "));
-      if (filters.audience && filters.audience !== "other") newChips.push(filters.audience.toUpperCase().replace(/-/g," "));
-      if (budget) newChips.push(`₹${budget.toLocaleString("en-IN")} / UNIT`);
-      if (filters.exclude_edible) newChips.push({ label:"NON-EDIBLE", muted:true });
-      if (filters.exclude_fragile) newChips.push({ label:"NON-FRAGILE", muted:true });
-      setChips(newChips);
+  // Handle refine from results bar
+  const handleRefine = async (newQuery) => {
+    const q = newQuery || query;
+    if (!q.trim() || searching) return;
+    setQuery(q);
+    setSearching(true);
+    setFollowUp("");
+    saveConvo("user", q);
 
-      // Pre-filter
+    try {
+      const res = await fetch(CATALOGUE_URL + "/dove-chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: q,
+          conversation_history: intakeHistory,
+          system_override: INTAKE_SYSTEM,
+        }),
+      });
+      const data = await res.json();
+
+      const newHistory = [...intakeHistory, { role:"user", content:q }, { role:"assistant", content:data.response }];
+      setIntakeHistory(newHistory);
+      saveConvo("dove", data.response);
+
+      if (!data.is_gifting_query) {
+        setFollowUp("I'm your gifting concierge — please tell me about a gift you'd like to find.");
+        setSearching(false);
+        return;
+      }
+
+      const filters = data.filters || lastFilters || {};
+      if (data.filters) setLastFilters(data.filters);
+      if (!data.ready && data.response) setFollowUp(data.response);
+      else setFollowUp("");
+
+      await runCuration(filters, filters.query || q);
+    } catch(e) {
+      console.error(e);
+    }
+    setSearching(false);
+  };
+
+  const runCuration = async (filters, briefQuery) => {
+    const allProducts = productsRef.current;
+    const qty = filters.qty || 1;
+    const budget = filters.budget || null;
+
+    const newChips = [];
+    if (filters.occasion && filters.occasion !== "other") newChips.push(filters.occasion.toUpperCase().replace(/-/g," "));
+    if (filters.audience && filters.audience !== "other") newChips.push(filters.audience.toUpperCase().replace(/-/g," "));
+    if (budget) newChips.push(`₹${budget.toLocaleString("en-IN")} / UNIT`);
+    if (filters.qty) newChips.push(`${filters.qty} GIFTS`);
+    if (filters.deadline) newChips.push(`BY ${filters.deadline.toUpperCase()}`);
+    if (filters.exclude_edible) newChips.push({ label:"NON-EDIBLE", muted:true });
+    if (filters.exclude_fragile) newChips.push({ label:"NON-FRAGILE", muted:true });
+    setChips(newChips);
+
+    try {
       const candidates = allProducts.filter(p => {
         const price = priceAtQty(p.pricing_tiers, qty);
         if (budget && price > budget * 1.2) return false;
@@ -171,11 +315,10 @@ export default function App() {
         tags: (p._tags||[]).join(", "),
       }));
 
-      // Claude ranks
       const rankRes = await fetch(CATALOGUE_URL + "/dove-rank", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          brief: searchQ,
+          brief: briefQuery,
           budget: filters.budget || null,
           exclude_edible: filters.exclude_edible || false,
           exclude_fragile: filters.exclude_fragile || false,
@@ -195,16 +338,13 @@ export default function App() {
       const rest = candidates.filter(c=>!rankedSet.has(c.id)).map(c=>productMap[c.id]).filter(Boolean);
       setResults([...ordered, ...rest]);
       setSort("rec");
-
-      // If Dove is ready, clear follow-up
-      if (doveData.ready) setFollowUp("");
-
     } catch(e) {
       console.error(e);
-      setResults(allProducts.map(p=>({...p, _price:priceAtQty(p.pricing_tiers,1)})));
+      const fallback = allProducts.filter(p => !budget || priceAtQty(p.pricing_tiers,qty)<=budget*1.2)
+        .map(p=>({...p, _price:priceAtQty(p.pricing_tiers,qty)}));
+      setResults(fallback);
       setAiSummary("Here are our curated gifts.");
     }
-    setSearching(false);
   };
 
   const toggleHeart = async (p) => {
@@ -230,7 +370,7 @@ export default function App() {
   const submitShortlist = async () => {
     if (!session || hearted.size===0) return;
     setSubmitting(true);
-    logEvent("shortlist_submit", null, { product_ids: [...hearted], count: hearted.size });
+    logEvent("shortlist_submit", null, { product_ids:[...hearted], count:hearted.size });
     setTimeout(() => { setView("submitted"); setSubmitting(false); }, 800);
   };
 
@@ -240,22 +380,20 @@ export default function App() {
     return 0;
   });
 
-  const shortlistItems = [...hearted].map(id => heartedRef.current[id] || results.find(p=>p.id===id)).filter(Boolean);
+  const shortlistItems = [...hearted].map(id => heartedRef.current[id]||results.find(p=>p.id===id)).filter(Boolean);
   const totalEstimate = shortlistItems.reduce((s,p)=>s+(p._price||0),0);
 
   const S = styles;
 
   if (notFound) return (
-    <div style={S.fullCenter}>
-      <BigLogo />
-      <p style={{ fontSize:15, color:"#888", marginTop:28, fontFamily:"Georgia,serif", fontWeight:300 }}>This link is invalid or has expired.</p>
+    <div style={S.fullCenter}><BigLogo />
+      <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:"#888", marginTop:28 }}>This link is invalid or has expired.</p>
     </div>
   );
 
   if (!session) return (
-    <div style={S.fullCenter}>
-      <BigLogo />
-      <p style={{ fontSize:11, color:"#bbb", letterSpacing:"3px", textTransform:"uppercase", marginTop:24, fontFamily:"'Josefin Sans',sans-serif" }}>Loading…</p>
+    <div style={S.fullCenter}><BigLogo />
+      <p style={{ fontSize:11, color:"#bbb", letterSpacing:"3px", textTransform:"uppercase", marginTop:24 }}>Loading…</p>
     </div>
   );
 
@@ -263,71 +401,115 @@ export default function App() {
     <div style={S.fullCenter}>
       <div style={{ width:52, height:52, borderRadius:"50%", background:"#2C5F3A", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:24 }}>✓</div>
       <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:28, fontWeight:400, color:"#111", margin:"0 0 10px" }}>Shortlist sent</p>
-      <p style={{ fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#888", maxWidth:380, lineHeight:1.8, margin:"0 0 32px", textAlign:"center" }}>
-        Thank you, {session.client_name.split(" ")[0]}. We'll follow up within 24 hours with availability and final pricing.
+      <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:"#888", maxWidth:380, lineHeight:1.8, margin:"0 0 32px", textAlign:"center" }}>
+        Thank you, {session.client_name.split(" ")[0]}. We'll follow up within 24 hours.
       </p>
-      <div style={{ width:"100%", maxWidth:400 }}>
-        {shortlistItems.map(p=>(
-          <div key={p.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:"1px solid #f0f0f0" }}>
-            <div style={{ width:44, height:54, background:p._bg||"#f5f0eb", flexShrink:0, overflow:"hidden" }}>
-              {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />}
-            </div>
-            <div>
-              <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:"#111", margin:"0 0 3px" }}>{p.name}</p>
-              <p style={{ fontSize:13, color:"#aaa", margin:0 }}>₹{(p._price||0).toLocaleString("en-IN")}</p>
-            </div>
+      {shortlistItems.map(p=>(
+        <div key={p.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:"1px solid #f0f0f0", width:"100%", maxWidth:400 }}>
+          <div style={{ width:44, height:54, background:p._bg||"#f5f0eb", flexShrink:0, overflow:"hidden" }}>
+            {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />}
           </div>
-        ))}
-      </div>
+          <div>
+            <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:15, fontWeight:400, color:"#111", margin:"0 0 3px" }}>{p.name}</p>
+            <p style={{ fontSize:13, color:"#aaa", margin:0 }}>₹{(p._price||0).toLocaleString("en-IN")}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 
   return (
     <div style={S.app}>
 
-      {/* ── HOME ── */}
-      {view === "home" && (
-        <div style={S.homePage}>
-          <div style={S.homeCenter}>
-            <BigLogo />
-            <p style={S.homeTagline}>by Ikka Dukka · Gift Intelligence</p>
-            <p style={S.homeGreeting}>
-              Hello {session.client_name.split(" ")[0]} — what would you like to gift today?
-            </p>
-
-            <div style={S.homeInputWrap}>
-              <textarea
-                ref={queryInputRef}
-                style={S.homeTextarea}
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSearch(); } }}
-                placeholder="Tell us what you're looking for…"
-                rows={2}
-                autoFocus
-              />
-              <button
-                style={{ ...S.homeSearchBtn, ...(!query.trim()||searching?{ opacity:0.4, cursor:"not-allowed" }:{}) }}
-                onClick={() => handleSearch()}
-                disabled={!query.trim()||searching}
-              >
-                {searching ? "Searching…" : "Find gifts →"}
-              </button>
-            </div>
-
-            <div style={S.homeSuggs}>
-              {SUGGESTIONS.map((s,i) => (
-                <button key={i} style={S.suggBtn} onClick={() => { setQuery(s); handleSearch(s); }}>{s}</button>
-              ))}
-            </div>
-          </div>
-
-          <div style={S.homeClientBadge}>
+      {/* ── INTAKE ── */}
+      {view === "intake" && (
+        <div style={S.intakePage}>
+          {/* Client badge */}
+          <div style={S.clientBadge}>
             <div style={S.av}>{initials(session.client_name)}</div>
             <div>
               <p style={{ fontSize:12, fontWeight:600, color:"#111", margin:0 }}>{session.client_name}</p>
               {session.client_company && <p style={{ fontSize:11, color:"#aaa", margin:0 }}>{session.client_company}</p>}
             </div>
+          </div>
+
+          <div style={S.intakeCenter}>
+            <div style={{ marginBottom:48 }}>
+              <BigLogo />
+              <p style={S.tagline}>by Ikka Dukka · Gift Intelligence</p>
+            </div>
+
+            {/* Dove conversation */}
+            <div style={S.intakeMessages}>
+              {intakeMessages.map((m,i) => (
+                <div key={i} style={{ marginBottom:24, display:"flex", flexDirection:"column", alignItems: m.role==="dove"?"flex-start":"flex-end" }}>
+                  {m.role === "dove" && (
+                    <div style={S.doveLabel}>
+                      <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE }}></span>
+                      <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DOVE_BLUE }}>Dove</span>
+                    </div>
+                  )}
+                  <p style={m.role==="dove" ? S.doveMessage : S.userMessage}>
+                    {m.text.split("\n").map((line,j,arr)=>(
+                      <span key={j}>{line}{j<arr.length-1&&<br/>}</span>
+                    ))}
+                  </p>
+                </div>
+              ))}
+
+              {intakeLoading && (
+                <div style={{ marginBottom:24 }}>
+                  <div style={S.doveLabel}>
+                    <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE }}></span>
+                    <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DOVE_BLUE }}>Dove</span>
+                  </div>
+                  <div style={{ display:"flex", gap:5, alignItems:"center", marginTop:8 }}>
+                    <span className="td"></span>
+                    <span className="td" style={{ animationDelay:"0.2s" }}></span>
+                    <span className="td" style={{ animationDelay:"0.4s" }}></span>
+                  </div>
+                </div>
+              )}
+              <div ref={intakeEndRef} />
+            </div>
+
+            {/* Input */}
+            <div style={S.intakeInputWrap}>
+              <textarea
+                style={S.intakeTextarea}
+                value={intakeInput}
+                onChange={e => setIntakeInput(e.target.value)}
+                onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleIntakeSend(); }}}
+                placeholder="e.g. 50 senior bankers, Diwali gifts, budget ₹3,000 each, need by October 20"
+                disabled={intakeLoading}
+                rows={2}
+                autoFocus
+              />
+              <button
+                style={{ ...S.intakeSendBtn, ...(!intakeInput.trim()||intakeLoading?{ opacity:0.35, cursor:"not-allowed" }:{}) }}
+                onClick={handleIntakeSend}
+                disabled={!intakeInput.trim()||intakeLoading}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Past searches */}
+            {pastQueries.length > 0 && (
+              <div style={S.pastSearches}>
+                <p style={S.pastLabel}>Recent searches</p>
+                {pastQueries.map((q,i) => (
+                  <button key={i} style={S.pastItem} onClick={() => {
+                    setIntakeInput(q);
+                    setTimeout(() => handleIntakeSend(), 50);
+                  }}>
+                    ↺ {q}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -335,34 +517,28 @@ export default function App() {
       {/* ── RESULTS ── */}
       {view === "results" && (
         <div style={S.resultsPage}>
-
-          {/* Persistent top bar */}
           <div style={S.topBar}>
-            <button style={S.logoSmall} onClick={() => setView("home")}>
-              <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:14, fontWeight:700, letterSpacing:4, textTransform:"uppercase", color:"#111" }}>Rock</span>
-              <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontStyle:"italic", color:"#2C5F3A", fontWeight:400, marginLeft:3 }}>Dove</span>
-            </button>
-
+            <SmallLogo onClick={() => setView("intake")} />
             <div style={S.searchBarWrap}>
               <textarea
                 style={S.searchBar}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSearch(); } }}
+                onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleRefine(); }}}
                 rows={1}
+                placeholder="Refine your search…"
               />
               <button
                 style={{ ...S.searchBarBtn, ...(searching?{ opacity:0.5, cursor:"not-allowed" }:{}) }}
-                onClick={() => handleSearch()}
+                onClick={() => handleRefine()}
                 disabled={searching}
               >
-                {searching ? "…" : "→"}
+                {searching?"…":"→"}
               </button>
             </div>
-
             <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
               {hearted.size > 0 && (
-                <button style={S.shortlistToggleBtn} onClick={() => setShortlistOpen(!shortlistOpen)}>
+                <button style={S.shortlistBtn} onClick={() => setShortlistOpen(!shortlistOpen)}>
                   ♥ {hearted.size} saved
                 </button>
               )}
@@ -370,58 +546,50 @@ export default function App() {
             </div>
           </div>
 
-          {/* Context strip */}
           {(chips.length > 0 || aiSummary) && (
             <div style={S.contextStrip}>
-              {chips.length > 0 && chips.map((c,i) => (
-                <span key={i} style={typeof c==="string"?S.chip:S.chipMuted}>
-                  {typeof c==="string"?c:c.label}
-                </span>
+              {chips.map((c,i)=>(
+                <span key={i} style={typeof c==="string"?S.chip:S.chipMuted}>{typeof c==="string"?c:c.label}</span>
               ))}
-              {aiSummary && (
-                <span style={S.aiSummaryText}>— {aiSummary}</span>
-              )}
+              {aiSummary && <span style={S.aiText}>— {aiSummary}</span>}
             </div>
           )}
 
-          {/* Grid + shortlist */}
           <div style={S.resultsBody}>
             <div style={{ flex:1, overflowY:"auto" }}>
               <div style={S.gridWrap}>
                 <div style={S.gridMeta}>
-                  <span style={S.gridCnt}>{searching ? "Searching…" : `${results.length} gifts curated`}</span>
+                  <span style={S.gridCnt}>{searching?"Searching…":`${results.length} gifts curated`}</span>
                   <div style={{ display:"flex", gap:4 }}>
-                    {[["rec","Recommended"],["asc","Price ↑"],["desc","Price ↓"]].map(([v,l]) => (
-                      <button key={v} style={{ ...S.sortBtn, ...(sort===v?S.sortOn:{}) }} onClick={() => setSort(v)}>{l}</button>
+                    {[["rec","Recommended"],["asc","Price ↑"],["desc","Price ↓"]].map(([v,l])=>(
+                      <button key={v} style={{ ...S.sortBtn, ...(sort===v?S.sortOn:{}) }} onClick={()=>setSort(v)}>{l}</button>
                     ))}
                   </div>
                 </div>
 
                 {searching ? (
-                  <div style={{ textAlign:"center", padding:"80px 0", color:"#bbb", fontFamily:"Georgia,serif", fontSize:17, fontStyle:"italic", fontWeight:300 }}>
-                    Finding the perfect gifts for you…
+                  <div style={{ textAlign:"center", padding:"80px 0", fontFamily:"Georgia,serif", fontSize:17, fontStyle:"italic", fontWeight:300, color:"#bbb" }}>
+                    Finding the right gifts for you…
                   </div>
                 ) : (
                   <div style={S.grid}>
-                    {sortedResults.map(p => (
+                    {sortedResults.map(p=>(
                       <div key={p.id} style={S.card}>
                         <div style={{ ...S.cardImg, background:p._bg||"#f5f0eb" }}
-                          onClick={() => { setSelectedProduct({...p}); logEvent("product_view", p.id); }}>
+                          onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                           {p.image_url ? (
-                            <img src={p.image_url} alt={p.name}
-                              style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}
-                              onError={e=>{e.target.style.display="none"}} />
+                            <img src={p.image_url} alt={p.name} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />
                           ) : (
                             <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
                               <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category}</span>
                             </div>
                           )}
-                          <button style={{ ...S.heartBtn, color: hearted.has(p.id)?"#9B3A2A":"#bbb" }}
-                            onClick={e => { e.stopPropagation(); toggleHeart(p); }}>
+                          <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
+                            onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
                             {hearted.has(p.id)?"♥":"♡"}
                           </button>
                         </div>
-                        <div style={S.cardBody} onClick={() => { setSelectedProduct({...p}); logEvent("product_view", p.id); }}>
+                        <div style={S.cardBody} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                           <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
                             {TIER_LABEL[p.tier]||p.tier}
                           </span>
@@ -434,61 +602,43 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Soft follow-up from Dove — below results, never blocking */}
+                {/* Soft follow-up */}
                 {followUp && !searching && (
                   <div style={S.followUp}>
-                    <span style={S.followUpDot}></span>
-                    <div>
-                      <p style={S.followUpText}>{followUp}</p>
-                      <div style={S.followUpInput}>
-                        <input
-                          style={S.followUpField}
-                          placeholder="Reply to refine…"
-                          onKeyDown={e => {
-                            if (e.key==="Enter" && e.target.value.trim()) {
-                              const refined = query + ". " + e.target.value.trim();
-                              setQuery(refined);
-                              handleSearch(refined);
-                              e.target.value = "";
-                            }
-                          }}
-                        />
-                      </div>
+                    <span style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0, marginTop:5 }}></span>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontStyle:"italic", fontWeight:300, color:"#666", margin:"0 0 12px", lineHeight:1.75 }}>{followUp}</p>
+                      <input style={S.followUpField} placeholder="Type to refine…"
+                        onKeyDown={e=>{ if (e.key==="Enter"&&e.target.value.trim()){ handleRefine(query+". "+e.target.value.trim()); e.target.value=""; }}} />
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Shortlist drawer */}
             {shortlistOpen && (
-              <div style={S.shortlistDrawer}>
-                <div style={S.shortlistHeader}>
-                  <p style={S.shortlistTitle}>Your shortlist</p>
-                  <button style={{ background:"none", border:"none", fontSize:20, color:"#aaa", cursor:"pointer" }}
-                    onClick={() => setShortlistOpen(false)}>×</button>
+              <div style={S.drawer}>
+                <div style={S.drawerHdr}>
+                  <p style={S.drawerTitle}>Shortlist</p>
+                  <button style={{ background:"none", border:"none", fontSize:20, color:"#aaa", cursor:"pointer" }} onClick={()=>setShortlistOpen(false)}>×</button>
                 </div>
                 <div style={{ flex:1, overflowY:"auto" }}>
-                  {shortlistItems.length === 0 ? (
-                    <p style={{ padding:"28px 20px", fontSize:13, color:"#bbb", textAlign:"center", fontFamily:"Georgia,serif", fontStyle:"italic", fontWeight:300, lineHeight:1.8 }}>
-                      Heart a gift to save it here
-                    </p>
-                  ) : shortlistItems.map(p => (
+                  {shortlistItems.length===0 ? (
+                    <p style={{ padding:"28px 20px", fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#bbb", textAlign:"center", lineHeight:1.8, margin:0 }}>Heart a gift to save it here</p>
+                  ) : shortlistItems.map(p=>(
                     <div key={p.id} style={S.slRow}>
-                      <div style={{ width:42, height:50, background:p._bg||"#f5f0eb", flexShrink:0, overflow:"hidden", cursor:"pointer" }}
-                        onClick={() => setSelectedProduct({...p})}>
+                      <div style={{ width:42, height:50, background:p._bg||"#f5f0eb", flexShrink:0, overflow:"hidden", cursor:"pointer" }} onClick={()=>setSelectedProduct({...p})}>
                         {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <p style={{ fontSize:12, fontWeight:500, color:"#111", margin:"0 0 2px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</p>
                         <p style={{ fontSize:11, color:"#aaa", margin:0 }}>₹{(p._price||0).toLocaleString("en-IN")}</p>
                       </div>
-                      <button style={{ background:"none", border:"none", color:"#ccc", cursor:"pointer", fontSize:17, padding:0, flexShrink:0 }}
-                        onClick={() => toggleHeart(p)}>×</button>
+                      <button style={{ background:"none", border:"none", color:"#ccc", cursor:"pointer", fontSize:17, padding:0, flexShrink:0 }} onClick={()=>toggleHeart(p)}>×</button>
                     </div>
                   ))}
                 </div>
-                <div style={S.slFooter}>
+                <div style={S.drawerFtr}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:14, paddingBottom:14, borderBottom:"1px solid #f0ece4" }}>
                     <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa" }}>Total</span>
                     <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:"#111" }}>
@@ -507,17 +657,15 @@ export default function App() {
         </div>
       )}
 
-      {/* PRODUCT MODAL */}
+      {/* MODAL */}
       {selectedProduct?.id && (
-        <div style={S.modalOverlay} onClick={() => setSelectedProduct(null)}>
-          <div style={S.modalBox} onClick={e => e.stopPropagation()}>
-            <button style={S.modalClose} onClick={() => setSelectedProduct(null)}>×</button>
+        <div style={S.modalOverlay} onClick={()=>setSelectedProduct(null)}>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            <button style={S.modalClose} onClick={()=>setSelectedProduct(null)}>×</button>
             <div style={S.modalInner}>
               <div style={S.modalImg}>
                 {selectedProduct.image_url ? (
-                  <img src={selectedProduct.image_url} alt={selectedProduct.name||""}
-                    style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}
-                    onError={e=>{e.target.style.display="none"}} />
+                  <img src={selectedProduct.image_url} alt={selectedProduct.name||""} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} onError={e=>{e.target.style.display="none"}} />
                 ) : (
                   <div style={{ width:"100%", height:"100%", background:selectedProduct._bg||"#f5f0eb", display:"flex", alignItems:"center", justifyContent:"center" }}>
                     <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{selectedProduct.category}</span>
@@ -529,54 +677,29 @@ export default function App() {
                   <span style={{ ...S.tierBadge, ...(selectedProduct.tier==="Gold"?S.tierGold:selectedProduct.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
                     {TIER_LABEL[selectedProduct.tier]||selectedProduct.tier}
                   </span>
-                  <button style={{ background:"none", border:"none", fontSize:26, color: hearted.has(selectedProduct.id)?"#9B3A2A":"#ccc", cursor:"pointer", lineHeight:1 }}
-                    onClick={() => toggleHeart(selectedProduct)}>
-                    {hearted.has(selectedProduct.id)?"♥":"♡"}
-                  </button>
+                  <button style={{ background:"none", border:"none", fontSize:26, color:hearted.has(selectedProduct.id)?"#9B3A2A":"#ccc", cursor:"pointer", lineHeight:1 }}
+                    onClick={()=>toggleHeart(selectedProduct)}>{hearted.has(selectedProduct.id)?"♥":"♡"}</button>
                 </div>
-                <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:"#111", lineHeight:1.25, margin:"0 0 6px" }}>
-                  {selectedProduct.name||""}
-                </p>
-                <p style={{ fontSize:11, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 20px" }}>
-                  {selectedProduct.category||""}
-                </p>
-                <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:30, fontWeight:400, color:"#111", margin:"0 0 24px" }}>
-                  ₹{(selectedProduct._price||0).toLocaleString("en-IN")}
-                </p>
+                <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:"#111", lineHeight:1.25, margin:"0 0 6px" }}>{selectedProduct.name||""}</p>
+                <p style={{ fontSize:11, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 20px" }}>{selectedProduct.category||""}</p>
+                <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:28, fontWeight:400, color:"#111", margin:"0 0 24px" }}>₹{(selectedProduct._price||0).toLocaleString("en-IN")}</p>
                 {selectedProduct.description && (
-                  <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:"#444", lineHeight:1.85, margin:"0 0 24px" }}>
-                    {selectedProduct.description}
-                  </p>
+                  <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:"#444", lineHeight:1.85, margin:"0 0 24px" }}>{selectedProduct.description}</p>
                 )}
                 {selectedProduct.whats_in_box && (
                   <div style={{ marginBottom:22, paddingBottom:18, borderBottom:"1px solid #f0f0f0" }}>
                     <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 8px" }}>What's in the box</p>
-                    <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", lineHeight:1.8, margin:0 }}>
-                      {formatBox(selectedProduct.whats_in_box)}
-                    </p>
+                    <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", lineHeight:1.8, margin:0 }}>{formatBox(selectedProduct.whats_in_box)}</p>
                   </div>
                 )}
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px 24px", marginBottom:28 }}>
-                  {selectedProduct.moq && <div>
-                    <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Min. Order</p>
-                    <p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.moq} units</p>
-                  </div>}
-                  {selectedProduct.lead_time && <div>
-                    <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Lead Time</p>
-                    <p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.lead_time}</p>
-                  </div>}
-                  {selectedProduct.box_dimensions && <div>
-                    <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Dimensions</p>
-                    <p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.box_dimensions}</p>
-                  </div>}
-                  {selectedProduct.weight_grams && <div>
-                    <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Weight</p>
-                    <p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.weight_grams}g</p>
-                  </div>}
+                  {selectedProduct.moq && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Min. Order</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.moq} units</p></div>}
+                  {selectedProduct.lead_time && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Lead Time</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.lead_time}</p></div>}
+                  {selectedProduct.box_dimensions && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Dimensions</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.box_dimensions}</p></div>}
+                  {selectedProduct.weight_grams && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Weight</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{selectedProduct.weight_grams}g</p></div>}
                 </div>
-                <button
-                  style={{ ...S.btnGreen, ...(hearted.has(selectedProduct.id)?{ background:"#9B3A2A", boxShadow:"0 4px 0 #e8b4a8" }:{}) }}
-                  onClick={() => toggleHeart(selectedProduct)}>
+                <button style={{ ...S.btnGreen, ...(hearted.has(selectedProduct.id)?{ background:"#9B3A2A", boxShadow:"0 4px 0 #e8b4a8" }:{}) }}
+                  onClick={()=>toggleHeart(selectedProduct)}>
                   {hearted.has(selectedProduct.id)?"♥  Saved to shortlist":"♡  Save to shortlist"}
                 </button>
               </div>
@@ -588,71 +711,47 @@ export default function App() {
   );
 }
 
-function BigLogo() {
-  return (
-    <div style={{ textAlign:"center" }}>
-      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"center", gap:8 }}>
-        <span style={{
-          fontFamily:"'Playfair Display',Georgia,serif",
-          fontSize:56,
-          fontWeight:700,
-          letterSpacing:12,
-          textTransform:"uppercase",
-          color:"#111",
-          lineHeight:1,
-        }}>Rock</span>
-        <span style={{
-          fontFamily:"'Playfair Display',Georgia,serif",
-          fontSize:64,
-          fontStyle:"italic",
-          color:"#2C5F3A",
-          fontWeight:400,
-          letterSpacing:2,
-          lineHeight:1,
-        }}>Dove</span>
-      </div>
-    </div>
-  );
-}
-
 const styles = {
   app: { minHeight:"100vh", background:"#fff", fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif" },
   fullCenter: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"100vh", textAlign:"center", padding:32 },
   av: { width:32, height:32, borderRadius:"50%", background:"#7A90B0", fontSize:11, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
 
-  // Home
-  homePage: { minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"60px 40px", position:"relative" },
-  homeCenter: { width:"100%", maxWidth:720, textAlign:"center" },
-  homeTagline: { fontFamily:"'Josefin Sans',sans-serif", fontSize:11, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"12px 0 0", fontWeight:300 },
-  homeGreeting: { fontFamily:"Georgia,serif", fontSize:20, fontWeight:300, color:"#555", margin:"40px 0 36px", lineHeight:1.6, fontStyle:"italic" },
-  homeInputWrap: { width:"100%", border:"1.5px solid #1a1a1a", background:"#fff", display:"flex", flexDirection:"column" },
-  homeTextarea: { width:"100%", border:"none", outline:"none", resize:"none", padding:"20px 24px 0", fontFamily:"Georgia,serif", fontSize:18, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent", boxSizing:"border-box" },
-  homeSearchBtn: { alignSelf:"flex-end", background:"#2C5F3A", color:"#fff", border:"none", margin:"12px 16px 16px", padding:"10px 24px", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4" },
-  homeSuggs: { marginTop:24, display:"flex", flexWrap:"wrap", gap:8, justifyContent:"center" },
-  suggBtn: { fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#888", background:"none", border:"1px solid #E0DDD8", padding:"8px 16px", cursor:"pointer", fontStyle:"italic", lineHeight:1.5 },
-  homeClientBadge: { position:"absolute", top:28, right:32, display:"flex", alignItems:"center", gap:10 },
+  // Intake
+  intakePage: { minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"60px 40px", position:"relative" },
+  clientBadge: { position:"absolute", top:28, right:32, display:"flex", alignItems:"center", gap:10 },
+  intakeCenter: { width:"100%", maxWidth:640 },
+  tagline: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"10px 0 0", textAlign:"center", fontWeight:300 },
 
-  // Results page
+  intakeMessages: { marginBottom:24, maxHeight:300, overflowY:"auto" },
+  doveLabel: { display:"flex", alignItems:"center", gap:6, marginBottom:8 },
+  doveMessage: { fontFamily:"Georgia,serif", fontSize:19, fontWeight:300, fontStyle:"italic", color:"#2a2a2a", lineHeight:1.85, margin:0, maxWidth:"88%" },
+  userMessage: { fontFamily:"'Josefin Sans',sans-serif", fontSize:14, fontWeight:400, color:"#111", background:"#F5F5F3", padding:"10px 16px", margin:0, maxWidth:"80%", lineHeight:1.65 },
+
+  intakeInputWrap: { display:"flex", alignItems:"flex-end", border:"1.5px solid #1a1a1a", background:"#fff" },
+  intakeTextarea: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 10px", fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent" },
+  intakeSendBtn: { width:50, height:50, background:"#2C5F3A", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0, alignSelf:"flex-end" },
+
+  pastSearches: { marginTop:28 },
+  pastLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", color:"#ccc", margin:"0 0 10px" },
+  pastItem: { display:"block", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, fontStyle:"italic", color:"#aaa", background:"none", border:"none", cursor:"pointer", textAlign:"left", padding:"5px 0", lineHeight:1.5, width:"100%" },
+
+  // Results
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
+  topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:"1px solid #EDEBE6", flexShrink:0, background:"#fff" },
+  searchBarWrap: { flex:1, display:"flex", border:"1px solid #CDCAC4", height:36 },
+  searchBar: { flex:1, border:"none", outline:"none", resize:"none", padding:"7px 14px", fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#111", background:"transparent", lineHeight:1.4 },
+  searchBarBtn: { width:42, background:"#2C5F3A", border:"none", cursor:"pointer", color:"#fff", fontSize:17, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
+  shortlistBtn: { background:"#2C5F3A", color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
 
-  // Top bar
-  topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 28px", height:58, borderBottom:"1px solid #EDEBE6", flexShrink:0, background:"#fff" },
-  logoSmall: { background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"baseline", gap:3, flexShrink:0, padding:0 },
-  searchBarWrap: { flex:1, display:"flex", border:"1px solid #CDCAC4", background:"#fff", height:38 },
-  searchBar: { flex:1, border:"none", outline:"none", resize:"none", padding:"8px 14px", fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#111", background:"transparent", lineHeight:1.4 },
-  searchBarBtn: { width:44, background:"#2C5F3A", border:"none", cursor:"pointer", color:"#fff", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
-  shortlistToggleBtn: { background:"#2C5F3A", color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
-
-  // Context strip
-  contextStrip: { padding:"8px 28px", display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", borderBottom:"1px solid #F5F2EE", background:"#FAFAF8", flexShrink:0 },
+  contextStrip: { padding:"8px 24px", display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", borderBottom:"1px solid #F5F2EE", background:"#FAFAF8", flexShrink:0 },
   chip: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#2C5F3A", padding:"3px 10px", border:"1px solid #a8c8b4", background:"#eaf2ec" },
   chipMuted: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", padding:"3px 10px", border:"1px solid #eee", background:"#fafafa" },
-  aiSummaryText: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888" },
+  aiText: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888" },
 
   resultsBody: { flex:1, display:"flex", overflow:"hidden" },
-  gridWrap: { padding:"22px 28px" },
+  gridWrap: { padding:"22px 24px" },
   gridMeta: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 },
-  gridCnt: { fontSize:11, color:"#bbb", letterSpacing:"1px", textTransform:"uppercase", fontFamily:"'Josefin Sans',sans-serif" },
+  gridCnt: { fontSize:11, color:"#bbb", letterSpacing:"1px", textTransform:"uppercase" },
   sortBtn: { fontSize:11, color:"#bbb", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
   sortOn: { color:"#111", borderBottom:"1.5px solid #111" },
 
@@ -666,25 +765,19 @@ const styles = {
   tierPlat: { color:"#2a4a7a", background:"#eef3fa", border:"1px solid #b8cce8" },
   tierSilv: { color:"#666", background:"#f5f5f5", border:"1px solid #e0e0e0" },
   cardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:"#111", margin:"0 0 3px", lineHeight:1.3 },
-  cardCat: { fontSize:10, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", margin:"0 0 8px", fontFamily:"'Josefin Sans',sans-serif" },
-  cardPrice: { fontSize:14, fontWeight:600, color:"#111", margin:0, fontFamily:"'Josefin Sans',sans-serif" },
+  cardCat: { fontSize:10, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", margin:"0 0 7px" },
+  cardPrice: { fontSize:14, fontWeight:600, color:"#111", margin:0 },
 
-  // Follow-up
-  followUp: { display:"flex", alignItems:"flex-start", gap:12, marginTop:40, padding:"20px 24px", background:"#F9F7F4", borderTop:"1px solid #EDEBE6" },
-  followUpDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:"#2C5F3A", flexShrink:0, marginTop:6 },
-  followUpText: { fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, fontStyle:"italic", color:"#555", margin:"0 0 12px", lineHeight:1.7 },
-  followUpInput: { display:"flex" },
-  followUpField: { flex:1, fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#111", border:"none", borderBottom:"1.5px solid #1a1a1a", padding:"6px 0", outline:"none", background:"transparent", fontStyle:"italic" },
+  followUp: { display:"flex", alignItems:"flex-start", gap:12, marginTop:40, padding:"22px 24px", background:"#F9F7F4", borderTop:"1px solid #EDEBE6" },
+  followUpField: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, fontStyle:"italic", color:"#111", border:"none", borderBottom:"1px solid #ccc", padding:"4px 0", outline:"none", background:"transparent", width:"100%" },
 
-  // Shortlist drawer
-  shortlistDrawer: { width:280, background:"#fff", borderLeft:"1px solid #EDEBE6", display:"flex", flexDirection:"column", flexShrink:0 },
-  shortlistHeader: { padding:"18px 20px 14px", borderBottom:"1px solid #EDEBE6", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
-  shortlistTitle: { fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#111", margin:0 },
+  drawer: { width:272, background:"#fff", borderLeft:"1px solid #EDEBE6", display:"flex", flexDirection:"column", flexShrink:0 },
+  drawerHdr: { padding:"16px 20px 14px", borderBottom:"1px solid #EDEBE6", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
+  drawerTitle: { fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#111", margin:0 },
   slRow: { display:"flex", alignItems:"center", gap:10, padding:"11px 18px", borderBottom:"1px solid #F5F0E8" },
-  slFooter: { padding:18, borderTop:"1px solid #EDEBE6", flexShrink:0 },
+  drawerFtr: { padding:18, borderTop:"1px solid #EDEBE6", flexShrink:0 },
   btnGreen: { width:"100%", background:"#2C5F3A", color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
 
-  // Modal
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:820, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
