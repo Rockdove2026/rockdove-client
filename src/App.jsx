@@ -5,18 +5,52 @@ const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
   "https://ikka-catalogue-service-production.up.railway.app";
 
 const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","#F5F0E8","#EEF1F7","#F2EEF5"];
-const ACCENT_COLORS = ["#C27B6E","#7A9E8A","#7A8EBE","#BE7A8A","#9B7D55","#5A9E82","#C29B55","#7A9EBE","#9B7ABE"];
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
+
+const SUG_STYLES = [
+  { color:"#2C5F3A", border:"#a8c8b4", bg:"#eaf2ec" },
+  { color:"#7a2018", border:"#e8b4a8", bg:"#fdf0ed" },
+  { color:"#3a5a7a", border:"#b0c4d8", bg:"#eef2f8" },
+  { color:"#7a5c20", border:"#e8d5a0", bg:"#fdf5e6" },
+];
 
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
-  const match = tiers.filter(t => qty >= t.min_qty && (t.max_qty === null || qty <= t.max_qty))
-    .sort((a,b) => b.min_qty - a.min_qty)[0];
+  const match = tiers
+    .filter(t => qty >= t.min_qty && (t.max_qty === null || qty <= t.max_qty))
+    .sort((a, b) => b.min_qty - a.min_qty)[0];
   return match ? parseFloat(match.price_per_unit) : parseFloat(tiers[0].price_per_unit);
 }
 
 function initials(name) {
-  return name.split(" ").map(w => w[0]).join("").slice(0,2).toUpperCase();
+  return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function extractBudget(q) {
+  const m = q.match(
+    /under\s*₹?\s*(\d[\d,]*)|below\s*₹?\s*(\d[\d,]*)|₹\s*(\d[\d,]*)|rs\.?\s*(\d[\d,]*)|(\d[\d,]*)\s*(each|per\s*unit|\/unit)/i
+  );
+  if (m) {
+    const raw = m[1] || m[2] || m[3] || m[4] || m[5];
+    return parseInt(raw.replace(/,/g, ""));
+  }
+  return null;
+}
+
+function scoreProduct(product, includeTags, excludeTags) {
+  const productTags = (product.tags || []).map(t => t.toLowerCase());
+  if (excludeTags?.length) {
+    for (const tag of excludeTags) {
+      if (productTags.includes(tag.toLowerCase())) return -1;
+    }
+  }
+  let score = 0;
+  if (includeTags?.length) {
+    for (const tag of includeTags) {
+      if (productTags.includes(tag.toLowerCase())) score++;
+    }
+  }
+  return score;
 }
 
 export default function App() {
@@ -25,9 +59,7 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [results, setResults] = useState([]);
   const [hearted, setHearted] = useState(new Set());
-  const [shortlistProducts, setShortlistProducts] = useState([]);
   const [query, setQuery] = useState("");
-  const [activeQuery, setActiveQuery] = useState("");
   const [chips, setChips] = useState([]);
   const [aiMessage, setAiMessage] = useState("");
   const [aiQuestion, setAiQuestion] = useState("");
@@ -38,7 +70,8 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get("token") ||
+    const token =
+      new URLSearchParams(window.location.search).get("token") ||
       window.location.pathname.split("/").pop();
     if (token && token !== "/") loadSession(token);
     else setNotFound(true);
@@ -46,66 +79,53 @@ export default function App() {
 
   const loadSession = async (token) => {
     const { data, error } = await supabase
-      .from("rd_sessions")
-      .select("*")
-      .eq("token", token)
-      .single();
+      .from("rd_sessions").select("*").eq("token", token).single();
     if (error || !data) { setNotFound(true); return; }
     setSession(data);
-    await supabase.from("rd_sessions").update({ last_active: new Date().toISOString() }).eq("id", data.id);
-    loadProducts(data);
+    await supabase.from("rd_sessions")
+      .update({ last_active: new Date().toISOString() }).eq("id", data.id);
+    loadProducts();
     loadShortlist(data.id);
   };
 
-  const loadProducts = async (sess) => {
+  const loadProducts = async () => {
     const { data } = await supabase
       .from("catalog")
-      .select("*, pricing_tiers(*)")
+      .select("*, pricing_tiers(*), tags")
       .eq("active", true)
       .order("popularity", { ascending: false });
     if (data) {
-      const mapped = data.map((p, i) => ({
+      setProducts(data.map((p, i) => ({
         ...p,
         _bg: BG_COLORS[i % BG_COLORS.length],
-        _accent: ACCENT_COLORS[i % ACCENT_COLORS.length],
         _price: priceAtQty(p.pricing_tiers, 1),
-      }));
-      setProducts(mapped);
+      })));
     }
   };
 
   const loadShortlist = async (sessionId) => {
     const { data } = await supabase
-      .from("rd_shortlists")
-      .select("product_id")
-      .eq("session_id", sessionId);
+      .from("rd_shortlists").select("product_id").eq("session_id", sessionId);
     if (data) setHearted(new Set(data.map(r => r.product_id)));
   };
 
   const logEvent = useCallback(async (eventType, productId = null, metadata = {}) => {
     if (!session) return;
     await supabase.from("rd_events").insert([{
-      session_id: session.id,
-      event_type: eventType,
-      product_id: productId,
-      metadata,
+      session_id: session.id, event_type: eventType, product_id: productId, metadata,
     }]);
   }, [session]);
 
   const saveConversation = useCallback(async (role, message, tagFilters = null) => {
     if (!session) return;
     await supabase.from("rd_conversations").insert([{
-      session_id: session.id,
-      role,
-      message,
-      tag_filters: tagFilters,
+      session_id: session.id, role, message, tag_filters: tagFilters,
     }]);
   }, [session]);
 
   const doSearch = async (q) => {
     if (!q.trim() || loading) return;
     setLoading(true);
-    setActiveQuery(q);
     setView("results");
     logEvent("query", null, { query: q });
     saveConversation("user", q);
@@ -123,37 +143,47 @@ export default function App() {
       if (data.summary) newHistory.push({ role: "assistant", content: data.summary });
       setConversationHistory(newHistory);
 
-      const tagFilter = {
-        intent: data.intent || "",
-        audience: data.audience || "",
-        style: data.style || "",
-        include_tags: data.include_tags || [],
-        exclude_tags: data.exclude_tags || [],
-      };
+      const qty = data.qty || 1;
+      const budget = data.budget || extractBudget(q) || Infinity;
+      const includeTags = data.include_tags || [];
+      const excludeTags = data.exclude_tags || [];
 
       const newChips = [];
-      if (data.occasion && data.occasion !== "all") newChips.push(data.occasion);
-      if (data.audience) newChips.push(data.audience);
-      if (data.budget) newChips.push(`₹${data.budget} / unit`);
-      if (data.qty) newChips.push(`${data.qty} units`);
-      if (data.exclude_edible) newChips.push({ label: "Non-edible", muted: true });
-      if (data.exclude_fragile) newChips.push({ label: "Non-fragile", muted: true });
+      if (data.occasion && data.occasion !== "all") newChips.push(data.occasion.toUpperCase());
+      if (data.audience) newChips.push(data.audience.toUpperCase());
+      if (budget < Infinity) newChips.push(`₹${budget.toLocaleString("en-IN")} / UNIT`);
+      if (qty > 1) newChips.push(`${qty} UNITS`);
+      if (data.exclude_edible) newChips.push({ label: "NON-EDIBLE", muted: true });
+      if (data.exclude_fragile) newChips.push({ label: "NON-FRAGILE", muted: true });
       setChips(newChips);
       setAiMessage(data.summary || "Here are some curated gifts for you.");
       setAiQuestion(data.follow_up || "");
-      saveConversation("assistant", data.summary || "", tagFilter);
 
-      const qty = data.qty || 1;
-      const budget = data.budget || Infinity;
-      let filtered = products.filter(p => {
-        const price = priceAtQty(p.pricing_tiers, qty);
-        if (budget < Infinity && price > budget * 1.1) return false;
-        if (data.exclude_edible && p.edible) return false;
-        if (data.exclude_fragile && p.fragile) return false;
-        return true;
-      }).map(p => ({ ...p, _price: priceAtQty(p.pricing_tiers, qty) }));
+      saveConversation("assistant", data.summary || "", {
+        intent: data.intent, audience: data.audience,
+        include_tags: includeTags, exclude_tags: excludeTags,
+      });
+
+      // Filter + score by tags, budget, exclusions
+      let filtered = products
+        .filter(p => {
+          const price = priceAtQty(p.pricing_tiers, qty);
+          if (budget < Infinity && price > budget * 1.1) return false;
+          if (data.exclude_edible && p.edible) return false;
+          if (data.exclude_fragile && p.fragile) return false;
+          const tagScore = scoreProduct(p, includeTags, excludeTags);
+          if (tagScore === -1) return false;
+          return true;
+        })
+        .map(p => ({
+          ...p,
+          _price: priceAtQty(p.pricing_tiers, qty),
+          _tagScore: scoreProduct(p, includeTags, excludeTags),
+        }))
+        .sort((a, b) => b._tagScore - a._tagScore || (b.popularity || 0) - (a.popularity || 0));
 
       setResults(filtered.slice(0, 12));
+      setSort("rec");
     } catch (e) {
       setResults(products.slice(0, 12));
       setAiMessage("Here are some of our curated gifts. Refine your search to narrow it down.");
@@ -172,7 +202,8 @@ export default function App() {
       logEvent("shortlist_remove", productId);
     } else {
       newHearted.add(productId);
-      await supabase.from("rd_shortlists").insert([{ session_id: session.id, product_id: productId }]);
+      await supabase.from("rd_shortlists")
+        .insert([{ session_id: session.id, product_id: productId }]);
       logEvent("shortlist_add", productId);
     }
     setHearted(newHearted);
@@ -181,16 +212,15 @@ export default function App() {
   const submitShortlist = async () => {
     if (!session || hearted.size === 0) return;
     setSubmitting(true);
-    const items = results.filter(p => hearted.has(p.id));
     logEvent("shortlist_submit", null, { product_ids: [...hearted], count: hearted.size });
-    saveConversation("user", `Submitted shortlist: ${items.map(p => p.name).join(", ")}`);
+    saveConversation("user", `Submitted shortlist: ${shortlistedItems.map(p => p.name).join(", ")}`);
     setTimeout(() => { setView("submitted"); setSubmitting(false); }, 800);
   };
 
   const sortedResults = [...results].sort((a, b) => {
     if (sort === "asc") return a._price - b._price;
     if (sort === "desc") return b._price - a._price;
-    return (b.popularity || 0) - (a.popularity || 0);
+    return (b._tagScore || 0) - (a._tagScore || 0) || (b.popularity || 0) - (a.popularity || 0);
   });
 
   const shortlistedItems = results.filter(p => hearted.has(p.id));
@@ -200,31 +230,41 @@ export default function App() {
 
   if (notFound) return (
     <div style={S.center}>
-      <div style={S.notFoundLogo}>ROCK DOVE</div>
-      <div style={S.notFoundMsg}>This link is invalid or has expired.</div>
-      <div style={S.notFoundSub}>Please contact your Rock Dove curator for a new link.</div>
+      <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: "#1a1a1a", marginTop: 24, marginBottom: 8 }}>
+        This link is invalid or has expired.
+      </div>
+      <div style={{ fontSize: 12, color: "#aaa", letterSpacing: "0.5px" }}>
+        Please contact your Rock Dove curator for a new link.
+      </div>
     </div>
   );
 
   if (!session) return (
     <div style={S.center}>
-      <div style={S.loadingLogo}>ROCK DOVE</div>
-      <div style={S.loadingSub}>Loading your experience…</div>
+      <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
+      <div style={{ fontSize: 11, color: "#bbb", letterSpacing: "2px", textTransform: "uppercase", marginTop: 20 }}>
+        Loading your experience…
+      </div>
     </div>
   );
 
   if (view === "submitted") return (
     <div style={S.center}>
-      <div style={S.submittedMark}>✓</div>
-      <div style={S.submittedTitle}>Shortlist sent</div>
-      <div style={S.submittedSub}>Thank you, {session.client_name.split(" ")[0]}. We'll follow up within 24 hours with availability and final pricing.</div>
-      <div style={S.submittedItems}>
+      <div style={{ width: 52, height: 52, borderRadius: "50%", background: "#2C5F3A", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, marginBottom: 24 }}>✓</div>
+      <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 28, fontWeight: 500, color: "#1a1a1a", marginBottom: 10 }}>Shortlist sent</div>
+      <div style={{ fontSize: 13, color: "#888", maxWidth: 380, lineHeight: 1.8, marginBottom: 36, textAlign: "center" }}>
+        Thank you, {session.client_name.split(" ")[0]}. We'll follow up within 24 hours with availability and final pricing.
+      </div>
+      <div style={{ width: "100%", maxWidth: 380 }}>
         {shortlistedItems.map(p => (
-          <div key={p.id} style={S.submittedItem}>
-            <div style={{...S.submittedThumb, background: p._bg}}></div>
+          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid #f0f0f0" }}>
+            <div style={{ width: 44, height: 52, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
+              {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            </div>
             <div>
-              <div style={S.submittedName}>{p.name}</div>
-              <div style={S.submittedPrice}>₹{p._price.toLocaleString("en-IN")}</div>
+              <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 15, fontWeight: 500, color: "#1a1a1a", marginBottom: 3 }}>{p.name}</div>
+              <div style={{ fontSize: 12, color: "#aaa" }}>₹{p._price.toLocaleString("en-IN")}</div>
             </div>
           </div>
         ))}
@@ -234,69 +274,59 @@ export default function App() {
 
   return (
     <div style={S.app}>
+
       {/* Header */}
       <div style={S.hdr}>
         <div>
-          <div style={S.logoMain}>
-            <span style={{color:"#111"}}>ROCK </span>
-            <span style={{color:"#378ADD", fontStyle:"italic"}}>Dove</span>
-          </div>
-          <div style={S.logoBy}>by Ikka Dukka · Gift Intelligence</div>
+          <div style={S.logoWrap}><span style={S.logoR}>Rock </span><span style={S.logoD}>Dove</span></div>
+          <div style={S.logoSub}>by Ikka Dukka · Gift Intelligence</div>
         </div>
-        <div style={S.hdrRight}>
-          <div style={S.clientPill}>
-            <div style={S.avatar}>{initials(session.client_name)}</div>
-            <div>
-              <div style={S.clientName}>{session.client_name}</div>
-              {session.client_company && <div style={S.clientCo}>{session.client_company}</div>}
-            </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={S.av}>{initials(session.client_name)}</div>
+          <div>
+            <div style={S.cname}>{session.client_name}</div>
+            {session.client_company && <div style={S.cco}>{session.client_company}</div>}
           </div>
-          {view === "results" && hearted.size > 0 && (
-            <div style={S.slBtn}>
-              <span style={S.slBtnIcon}>♥</span>
-              <span style={S.slBtnN}>{hearted.size}</span>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Landing */}
       {view === "landing" && (
         <div style={S.landing}>
-          <div style={S.landingKicker}>Welcome, {session.client_name.split(" ")[0]}</div>
-          <div style={S.landingH1}>
-            What would you like to <em style={{fontStyle:"italic", color:"#3B9E5A"}}>gift</em> today?
+          <div style={S.welcome}>Welcome, {session.client_name.split(" ")[0]}</div>
+          <div style={S.h1}>
+            What would you like<br />to <em style={{ fontStyle: "italic", color: "#2C5F3A" }}>gift</em> today?
           </div>
-          <div style={S.landingSub}>
-            Tell us about the occasion and the people. We'll curate the rest — thoughtfully.
-          </div>
-          <div style={S.qbox}>
-            <div style={S.qboxInputWrap}>
+          <div style={S.searchWrap}>
+            <div style={S.searchRow}>
               <input
-                style={S.qboxInput}
+                style={S.inp}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && doSearch(query)}
                 placeholder="e.g. Diwali gifts for 50 senior bankers, around ₹3,000…"
               />
-            </div>
-            <div style={S.findBtnWrap}>
-              <button style={S.findBtn} onClick={() => doSearch(query)} disabled={loading}>
+              <button style={S.btnDark} onClick={() => doSearch(query)} disabled={loading}>
                 {loading ? "Curating…" : "Find Gifts →"}
               </button>
             </div>
           </div>
           <div style={S.sugs}>
             {[
-              "Diwali gifts for my leadership team, around ₹3,000",
-              "Premium thank-you gift for a key client",
-              "Onboarding gifts for new joiners, ₹1,500",
-              "Work anniversary gifts for long-tenure employees",
-            ].map(s => (
-              <span key={s} style={S.sug} onClick={() => { setQuery(s); doSearch(s); }}>
-                {s.split(",")[0]}
-              </span>
-            ))}
+              "Diwali · leadership team",
+              "Client thank-you",
+              "New joiner onboarding",
+              "Work anniversary",
+            ].map((s, i) => {
+              const st = SUG_STYLES[i % SUG_STYLES.length];
+              return (
+                <span
+                  key={s}
+                  style={{ ...S.sug, color: st.color, border: `1px solid ${st.border}`, background: st.bg }}
+                  onClick={() => { setQuery(s); doSearch(s); }}
+                >{s}</span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -312,15 +342,15 @@ export default function App() {
               onKeyDown={e => e.key === "Enter" && doSearch(query)}
               placeholder="Refine your search…"
             />
-            <button style={S.qbarRefine} onClick={() => doSearch(query)} disabled={loading}>
+            <button style={S.btnDark} onClick={() => doSearch(query)} disabled={loading}>
               {loading ? "Curating…" : "Refine →"}
             </button>
           </div>
 
           {chips.length > 0 && (
-            <div style={S.ctxRow}>
+            <div style={S.chipsRow}>
               {chips.map((c, i) => (
-                <div key={i} style={typeof c === "string" ? S.ctxChip : S.ctxChipMuted}>
+                <div key={i} style={typeof c === "string" ? S.chip : S.chipMuted}>
                   {typeof c === "string" ? c : c.label}
                 </div>
               ))}
@@ -328,101 +358,96 @@ export default function App() {
           )}
 
           {aiMessage && (
-            <div style={S.aiRow}>
-              <div style={S.aiMark}>
-                <div style={S.aiDot}></div>
-                <div style={S.aiLbl}>ROCK DOVE</div>
-              </div>
-              <div style={S.aiCopy}>
+            <div style={S.aiBar}>
+              <div style={S.aiDot}></div>
+              <div style={S.aiLbl}>Rock Dove</div>
+              <div style={S.aiTxt}>
                 {aiMessage}
                 {aiQuestion && (
-                  <div style={S.aiQ} onClick={() => { setQuery(aiQuestion); doSearch(aiQuestion); }}>
-                    <span style={S.aiQTxt}>{aiQuestion} →</span>
-                  </div>
+                  <span
+                    style={S.aiQ}
+                    onClick={() => { setQuery(aiQuestion); doSearch(aiQuestion); }}
+                  > {aiQuestion} →</span>
                 )}
               </div>
             </div>
           )}
 
-          <div style={S.bodyWrap}>
-            <div style={S.gridArea}>
-              <div style={S.gridMeta}>
-                <div style={S.gridCount}>{results.length} gifts curated</div>
-                <div style={S.sortRow}>
-                  {[["rec","Recommended"],["asc","Price ↑"],["desc","Price ↓"]].map(([v,l]) => (
-                    <button key={v} style={{...S.sortB, ...(sort===v?S.sortBOn:{})}} onClick={() => setSort(v)}>{l}</button>
+          <div style={S.body}>
+            <div style={S.gridWrap}>
+              <div style={S.meta}>
+                <div style={S.cnt}>{results.length} gifts curated</div>
+                <div style={{ display: "flex" }}>
+                  {[["rec", "Recommended"], ["asc", "Price ↑"], ["desc", "Price ↓"]].map(([v, l]) => (
+                    <button key={v} style={{ ...S.sortBtn, ...(sort === v ? S.sortOn : {}) }} onClick={() => setSort(v)}>{l}</button>
                   ))}
                 </div>
               </div>
 
               {loading ? (
-                <div style={S.loadingGrid}>Curating your gifts…</div>
+                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "2px", textTransform: "uppercase" }}>
+                  Curating your gifts…
+                </div>
               ) : (
                 <div style={S.grid}>
                   {sortedResults.map(p => (
                     <div key={p.id} style={S.card} onClick={() => logEvent("product_view", p.id)}>
-                      <div style={{...S.cardImg, background: p._bg}}>
+                      <div style={{ ...S.cardImg, background: p._bg }}>
                         {p.image_url ? (
-                          <img
-                            src={p.image_url}
-                            alt={p.name}
-                            style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
-                          />
+                          <img src={p.image_url} alt={p.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
                         ) : (
-                          <div style={S.cardImgInner}>
-                            <div style={S.cardImgCat}>{p.category}</div>
+                          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <div style={{ fontSize: 9, letterSpacing: "2px", color: "#ccc", textTransform: "uppercase" }}>{p.category}</div>
                           </div>
                         )}
-                        <div style={{...S.cardAccent, background: p._accent}}></div>
                         <button
-                          style={{...S.heart, ...(hearted.has(p.id) ? S.heartOn : {})}}
+                          style={{ ...S.hbtn, ...(hearted.has(p.id) ? S.hbtnOn : {}) }}
                           onClick={e => { e.stopPropagation(); toggleHeart(p.id); }}
                         >{hearted.has(p.id) ? "♥" : "♡"}</button>
                       </div>
-                      <div style={S.cardBody}>
-                        <div style={{
-                          ...S.cardTier,
-                          ...(p.tier === "Gold" ? S.tierGold : p.tier === "Platinum" ? S.tierPlat : S.tierSilver)
-                        }}>{TIER_LABEL[p.tier] || p.tier}</div>
-                        <div style={S.cardName}>{p.name}</div>
-                        <div style={S.cardCat}>{p.category}</div>
-                        <div style={S.cardPrice}>₹{p._price.toLocaleString("en-IN")}</div>
+                      <div style={{ marginTop: 11 }}>
+                        <span style={{ ...S.tier, ...(p.tier === "Gold" ? S.tierGold : p.tier === "Platinum" ? S.tierPlat : S.tierSilv) }}>
+                          {TIER_LABEL[p.tier] || p.tier}
+                        </span>
                       </div>
+                      <div style={S.cardName}>{p.name}</div>
+                      <div style={S.cardCat}>{p.category}</div>
+                      <div style={S.cardPrice}>₹{p._price.toLocaleString("en-IN")}</div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Shortlist panel */}
-            <div style={S.slPanel}>
-              <div style={S.slHd}>
-                <div style={S.slHdLbl}>YOUR SHORTLIST</div>
-                <div style={S.slHdVal}>
-                  {hearted.size === 0 ? "Nothing saved yet" : `${hearted.size} gift${hearted.size !== 1 ? "s" : ""} saved`}
-                </div>
+            {/* Shortlist */}
+            <div style={S.sl}>
+              <div style={S.slHdr}>
+                <div style={S.slTitle}>Shortlist</div>
+                <div style={S.slCount}>{hearted.size === 0 ? "Empty" : `${hearted.size} gift${hearted.size !== 1 ? "s" : ""}`}</div>
               </div>
-              <div style={S.slItems}>
+              <div style={{ flex: 1, overflowY: "auto" }}>
                 {hearted.size === 0 ? (
-                  <div style={S.slEmpty}>Heart a gift<br/>to save it here.</div>
+                  <div style={S.slEmpty}>Heart a gift<br />to save it here.</div>
                 ) : shortlistedItems.map(p => (
-                  <div key={p.id} style={S.slItem}>
-                    <div style={{...S.slThumb, background: p._bg, borderLeft: `3px solid ${p._accent}`}}></div>
-                    <div style={S.slInfo}>
-                      <div style={S.slIname}>{p.name}</div>
-                      <div style={S.slIprice}>₹{p._price.toLocaleString("en-IN")}</div>
+                  <div key={p.id} style={S.slRow}>
+                    <div style={{ width: 44, height: 52, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
+                      {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={S.slName}>{p.name}</div>
+                      <div style={S.slPrice}>₹{p._price.toLocaleString("en-IN")}</div>
                     </div>
                     <button style={S.slRm} onClick={() => toggleHeart(p.id)}>×</button>
                   </div>
                 ))}
               </div>
-              <div style={S.slFt}>
-                <div style={S.slTotalLbl}>ESTIMATED TOTAL</div>
-                <div style={S.slTotalVal}>
-                  {hearted.size === 0 ? "—" : `₹${totalEstimate.toLocaleString("en-IN")}`}
+              <div style={S.slFooter}>
+                <div style={S.slTotalRow}>
+                  <div style={S.slTotalLbl}>Total</div>
+                  <div style={S.slTotalVal}>{hearted.size === 0 ? "—" : `₹${totalEstimate.toLocaleString("en-IN")}`}</div>
                 </div>
                 <button
-                  style={{...S.slCta, ...(hearted.size === 0 ? S.slCtaDisabled : {})}}
+                  style={{ ...S.btnGreen, ...(hearted.size === 0 ? { opacity: 0.4, cursor: "not-allowed", boxShadow: "none" } : {}) }}
                   onClick={submitShortlist}
                   disabled={hearted.size === 0 || submitting}
                 >
@@ -439,106 +464,76 @@ export default function App() {
 }
 
 const styles = {
-  app: { background:"#fff", minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:"'DM Sans', 'Helvetica Neue', sans-serif" },
-  center: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"100vh", textAlign:"center", padding:32 },
+  app: { background: "#fff", minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", letterSpacing: "0.02em" },
+  center: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", textAlign: "center", padding: 32, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif" },
 
-  notFoundLogo: { fontFamily:"'Playfair Display', serif", fontSize:24, fontWeight:700, letterSpacing:6, color:"#111", marginBottom:20 },
-  notFoundMsg: { fontSize:18, fontWeight:500, color:"#111", marginBottom:8 },
-  notFoundSub: { fontSize:14, color:"#888" },
-  loadingLogo: { fontFamily:"'Playfair Display', serif", fontSize:24, fontWeight:700, letterSpacing:6, color:"#111", marginBottom:16 },
-  loadingSub: { fontSize:14, color:"#999" },
+  logoWrap: { display: "flex", alignItems: "baseline", gap: 5 },
+  logoR: { fontSize: 14, fontWeight: 600, letterSpacing: 5, textTransform: "uppercase", color: "#1a1a1a" },
+  logoD: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 20, fontStyle: "italic", color: "#2C5F3A", fontWeight: 500 },
+  logoSub: { fontSize: 9, letterSpacing: "2px", textTransform: "uppercase", color: "#bbb", marginTop: 3, fontWeight: 300 },
 
-  submittedMark: { width:52, height:52, borderRadius:"99px", background:"#3B9E5A", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:20 },
-  submittedTitle: { fontFamily:"'Playfair Display', serif", fontSize:26, fontWeight:600, color:"#111", marginBottom:8 },
-  submittedSub: { fontSize:15, color:"#666", maxWidth:400, lineHeight:1.7, marginBottom:32 },
-  submittedItems: { display:"flex", flexDirection:"column", gap:12, width:"100%", maxWidth:400 },
-  submittedItem: { display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid #F0F0F0" },
-  submittedThumb: { width:44, height:44, flexShrink:0 },
-  submittedName: { fontSize:14, fontWeight:500, color:"#111", marginBottom:3 },
-  submittedPrice: { fontSize:13, color:"#888" },
+  hdr: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 40px", height: 60, background: "#fff", borderBottom: "1px solid #e8e2d8", flexShrink: 0 },
+  av: { width: 32, height: 32, borderRadius: "50%", background: "#7A90B0", fontSize: 10, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" },
+  cname: { fontSize: 11, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", color: "#1a1a1a", lineHeight: 1.3 },
+  cco: { fontSize: 10, fontWeight: 300, color: "#aaa" },
 
-  hdr: { background:"#fff", padding:"0 32px", display:"flex", alignItems:"center", justifyContent:"space-between", height:64, borderBottom:"1px solid #EBEBEB", flexShrink:0 },
-  logoMain: { fontFamily:"'Playfair Display', serif", fontSize:19, fontWeight:700, letterSpacing:4, textTransform:"uppercase", lineHeight:1 },
-  logoBy: { fontSize:11, color:"#AAA", letterSpacing:0.5, marginTop:3 },
-  hdrRight: { display:"flex", alignItems:"center", gap:16 },
-  clientPill: { display:"flex", alignItems:"center", gap:10 },
-  avatar: { width:36, height:36, borderRadius:"99px", background:"#F5A97A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#fff", flexShrink:0 },
-  clientName: { fontSize:14, fontWeight:500, color:"#111", lineHeight:1.2 },
-  clientCo: { fontSize:12, color:"#999" },
-  slBtn: { display:"flex", alignItems:"center", gap:6, borderLeft:"1px solid #EBEBEB", paddingLeft:16 },
-  slBtnIcon: { fontSize:15, color:"#C27B6E" },
-  slBtnN: { fontSize:13, fontWeight:600, color:"#C27B6E" },
+  landing: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 40px", textAlign: "center" },
+  welcome: { fontSize: 10, fontWeight: 600, letterSpacing: "3px", textTransform: "uppercase", color: "#C27B2A", marginBottom: 28 },
+  h1: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 48, fontWeight: 500, color: "#1a1a1a", lineHeight: 1.15, maxWidth: 480, marginBottom: 48 },
+  searchWrap: { width: "100%", maxWidth: 560, marginBottom: 32 },
+  searchRow: { display: "flex", alignItems: "stretch", borderBottom: "1.5px solid #1a1a1a", paddingBottom: 8, gap: 16 },
+  inp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 14, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", outline: "none", background: "transparent", padding: "4px 0" },
+  sugs: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 560 },
+  sug: { fontSize: 10, fontWeight: 600, cursor: "pointer", padding: "6px 14px", letterSpacing: "0.5px" },
 
-  landing: { display:"flex", flexDirection:"column", alignItems:"center", padding:"72px 32px 52px", textAlign:"center" },
-  landingKicker: { fontSize:13, fontWeight:500, color:"#999", marginBottom:16, letterSpacing:1, textTransform:"uppercase" },
-  landingH1: { fontFamily:"'Playfair Display', serif", fontSize:40, fontWeight:600, color:"#111", lineHeight:1.25, maxWidth:520, marginBottom:16 },
-  landingSub: { fontSize:16, color:"#666", lineHeight:1.7, maxWidth:400, marginBottom:44 },
-  qbox: { width:"100%", maxWidth:600, display:"flex", flexDirection:"column" },
-  qboxInputWrap: { borderBottom:"2px solid #111", display:"flex", alignItems:"flex-end", paddingBottom:6 },
-  qboxInput: { flex:1, border:"none", padding:"0 0 6px", fontSize:16, color:"#111", outline:"none", background:"transparent", width:"100%" },
-  findBtnWrap: { display:"flex", justifyContent:"center", marginTop:20 },
-  findBtn: { background:"#C0302A", border:"none", cursor:"pointer", padding:"14px 40px", fontSize:14, fontWeight:600, color:"#fff", letterSpacing:1 },
-  sugs: { display:"flex", gap:10, flexWrap:"wrap", justifyContent:"center", marginTop:28, maxWidth:600 },
-  sug: { fontSize:13, color:"#666", cursor:"pointer", padding:"6px 14px", border:"1px solid #DDD", borderRadius:2, background:"#FAFAFA" },
+  qbar: { padding: "0 40px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "stretch", background: "#fff", flexShrink: 0 },
+  qbarInp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 13, fontWeight: 300, letterSpacing: "1px", color: "#1a1a1a", border: "none", padding: "15px 0", outline: "none", background: "transparent" },
 
-  qbar: { background:"#fff", borderBottom:"1px solid #EBEBEB", padding:"12px 32px", display:"flex", alignItems:"center", gap:16, flexShrink:0 },
-  qbarInp: { flex:1, border:"none", borderBottom:"1px solid #DDD", padding:"6px 0", fontSize:15, color:"#111", outline:"none", background:"transparent" },
-  qbarRefine: { background:"transparent", border:"1px solid #C0302A", cursor:"pointer", padding:"7px 18px", fontSize:13, fontWeight:600, color:"#C0302A", letterSpacing:0.5 },
+  btnDark: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 26px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", margin: "9px 0" },
+  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 14, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
 
-  ctxRow: { padding:"10px 32px", display:"flex", gap:8, flexWrap:"wrap", borderBottom:"1px solid #F5F5F5", flexShrink:0 },
-  ctxChip: { fontSize:12, fontWeight:500, color:"#7A5C2E", padding:"4px 12px", border:"1px solid #E8D8C0", background:"#FBF7F2", borderRadius:2 },
-  ctxChipMuted: { fontSize:12, color:"#AAA", padding:"4px 12px", border:"1px solid #EEE", background:"#fff", borderRadius:2 },
+  chipsRow: { padding: "9px 40px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid #eeebe6", flexShrink: 0 },
+  chip: { fontSize: 9, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#2C5F3A", padding: "4px 10px", border: "1px solid #a8c8b4", background: "#eaf2ec" },
+  chipMuted: { fontSize: 9, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", padding: "4px 10px", border: "1px solid #eee", background: "#fafafa" },
 
-  aiRow: { padding:"14px 32px", borderBottom:"1px solid #F5F5F5", display:"flex", gap:14, alignItems:"flex-start", background:"#FDFAF6", flexShrink:0 },
-  aiMark: { display:"flex", alignItems:"center", gap:6, flexShrink:0, paddingTop:3 },
-  aiDot: { width:6, height:6, background:"#7A9E8A", borderRadius:"99px" },
-  aiLbl: { fontSize:9, fontWeight:700, letterSpacing:2, color:"#7A9E8A" },
-  aiCopy: { fontSize:14, color:"#444", lineHeight:1.7, flex:1 },
-  aiQ: { marginTop:10, display:"inline-flex", cursor:"pointer" },
-  aiQTxt: { fontSize:13, fontWeight:500, color:"#7A9E8A", borderBottom:"1px solid #7A9E8A" },
+  aiBar: { padding: "12px 40px", background: "#f9f7f4", borderBottom: "1px solid #eeebe6", display: "flex", gap: 12, alignItems: "center", flexShrink: 0 },
+  aiDot: { width: 5, height: 5, borderRadius: "50%", background: "#2C5F3A", flexShrink: 0 },
+  aiLbl: { fontSize: 8, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#2C5F3A", flexShrink: 0 },
+  aiTxt: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 15, fontStyle: "italic", color: "#555", fontWeight: 400 },
+  aiQ: { color: "#2C5F3A", cursor: "pointer", borderBottom: "1px solid #2C5F3A", paddingBottom: 1 },
 
-  bodyWrap: { display:"flex", flex:1, overflow:"hidden" },
-  gridArea: { flex:1, padding:"24px 32px", overflowY:"auto" },
-  gridMeta: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 },
-  gridCount: { fontSize:13, color:"#888" },
-  sortRow: { display:"flex", gap:16 },
-  sortB: { fontSize:13, color:"#AAA", cursor:"pointer", background:"transparent", border:"none", padding:0 },
-  sortBOn: { color:"#111", fontWeight:600, borderBottom:"1px solid #111" },
-  loadingGrid: { fontSize:14, color:"#AAA", textAlign:"center", padding:"60px 0" },
+  body: { display: "flex", flex: 1, overflow: "hidden" },
+  gridWrap: { flex: 1, padding: "26px 40px", overflowY: "auto" },
+  meta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
+  cnt: { fontSize: 9, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#aaa" },
+  sortBtn: { fontSize: 9, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", background: "none", border: "none", cursor: "pointer", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", padding: "5px 10px" },
+  sortOn: { color: "#1a1a1a", borderBottom: "1.5px solid #1a1a1a" },
 
-  grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))", gap:"28px 16px" },
-  card: { cursor:"pointer", position:"relative", background:"#fff" },
-  cardImg: { width:"100%", paddingBottom:"120%", position:"relative", overflow:"hidden" },
-  cardImgInner: { position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" },
-  cardImgCat: { fontSize:11, letterSpacing:2, color:"#BBB" },
-  cardAccent: { position:"absolute", bottom:0, left:0, right:0, height:3, opacity:0.5 },
-  heart: { position:"absolute", top:10, right:10, background:"rgba(255,255,255,0.85)", border:"none", cursor:"pointer", fontSize:17, color:"#CCC", padding:"4px 6px", lineHeight:1, borderRadius:2 },
-  heartOn: { color:"#C27B6E" },
-  cardBody: { padding:"12px 0 0" },
-  cardTier: { fontSize:10, fontWeight:600, letterSpacing:1, padding:"2px 8px", display:"inline-block", marginBottom:6, borderRadius:2 },
-  tierGold: { color:"#7A5C2E", background:"#FBF7F2", border:"1px solid #E8D8C0" },
-  tierSilver: { color:"#666", background:"#F5F5F5", border:"1px solid #E5E5E5" },
-  tierPlat: { color:"#3B5A8A", background:"#EEF3FA", border:"1px solid #C8D8EC" },
-  cardName: { fontFamily:"'Playfair Display', serif", fontSize:14, fontWeight:600, color:"#111", lineHeight:1.4, marginBottom:4 },
-  cardCat: { fontSize:12, color:"#999", marginBottom:6 },
-  cardPrice: { fontSize:15, fontWeight:600, color:"#111" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "24px 14px" },
+  card: { cursor: "pointer" },
+  cardImg: { width: "100%", paddingBottom: "116%", position: "relative", overflow: "hidden" },
+  hbtn: { position: "absolute", top: 10, right: 10, width: 28, height: 28, background: "rgba(255,255,255,0.92)", border: "none", fontSize: 13, color: "#ccc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  hbtnOn: { color: "#9B3A2A" },
+  tier: { fontSize: 8, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", display: "inline-block", padding: "3px 7px" },
+  tierGold: { color: "#7a5c20", background: "#fdf5e6", border: "1px solid #e8d5a0" },
+  tierPlat: { color: "#2a4a7a", background: "#eef3fa", border: "1px solid #b8cce8" },
+  tierSilv: { color: "#666", background: "#f5f5f5", border: "1px solid #e0e0e0" },
+  cardName: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 16, fontWeight: 500, color: "#1a1a1a", marginTop: 5, lineHeight: 1.3 },
+  cardCat: { fontSize: 9, fontWeight: 300, letterSpacing: "1.5px", textTransform: "uppercase", color: "#bbb", marginTop: 3 },
+  cardPrice: { fontSize: 12, fontWeight: 600, letterSpacing: "0.5px", color: "#1a1a1a", marginTop: 8 },
 
-  slPanel: { width:210, background:"#FDFAF6", borderLeft:"1px solid #EEE8DC", display:"flex", flexDirection:"column", flexShrink:0, overflowY:"auto" },
-  slHd: { padding:"20px 16px 14px", borderBottom:"1px solid #EEE8DC", background:"#F7F0E8", flexShrink:0 },
-  slHdLbl: { fontSize:9, fontWeight:700, letterSpacing:2, color:"#C27B6E", marginBottom:6 },
-  slHdVal: { fontSize:14, fontWeight:500, color:"#7A5C2E" },
-  slItems: { flex:1, overflowY:"auto" },
-  slEmpty: { padding:"28px 16px", fontSize:13, color:"#BBB", textAlign:"center", lineHeight:1.8 },
-  slItem: { display:"flex", gap:10, padding:"10px 14px", borderBottom:"1px solid #F5EDE3", alignItems:"center" },
-  slThumb: { width:36, height:44, flexShrink:0 },
-  slInfo: { flex:1, minWidth:0 },
-  slIname: { fontSize:12, fontWeight:500, color:"#333", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:3 },
-  slIprice: { fontSize:12, color:"#888" },
-  slRm: { background:"none", border:"none", color:"#CCC", cursor:"pointer", fontSize:16, padding:0 },
-  slFt: { padding:16, borderTop:"1px solid #EEE8DC", flexShrink:0 },
-  slTotalLbl: { fontSize:9, fontWeight:700, letterSpacing:2, color:"#C27B6E", marginBottom:6 },
-  slTotalVal: { fontSize:22, fontWeight:600, color:"#111", marginBottom:16 },
-  slCta: { width:"100%", background:"#C27B6E", color:"#fff", border:"none", padding:13, fontSize:12, fontWeight:600, letterSpacing:1, cursor:"pointer" },
-  slCtaDisabled: { opacity:0.4, cursor:"not-allowed" },
-  slNote: { fontSize:11, color:"#BBB", textAlign:"center", marginTop:8, lineHeight:1.6 },
+  sl: { width: 240, background: "#fff", borderLeft: "1px solid #e8e2d8", display: "flex", flexDirection: "column", flexShrink: 0 },
+  slHdr: { padding: "20px 20px 16px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "baseline", justifyContent: "space-between", flexShrink: 0 },
+  slTitle: { fontSize: 10, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#1a1a1a" },
+  slCount: { fontSize: 10, fontWeight: 400, letterSpacing: "1px", color: "#bbb" },
+  slEmpty: { padding: "40px 20px", fontSize: 10, letterSpacing: "1.5px", textTransform: "uppercase", color: "#ccc", fontWeight: 400, lineHeight: 1.8, textAlign: "center" },
+  slRow: { display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: "1px solid #f5f0e8" },
+  slName: { fontSize: 11, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 },
+  slPrice: { fontSize: 11, fontWeight: 300, color: "#888" },
+  slRm: { background: "none", border: "none", color: "#ccc", cursor: "pointer", fontSize: 18, padding: 0, lineHeight: 1, flexShrink: 0 },
+  slFooter: { padding: 20, borderTop: "1px solid #eeebe6", flexShrink: 0 },
+  slTotalRow: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #f0ece4" },
+  slTotalLbl: { fontSize: 9, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#aaa" },
+  slTotalVal: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 22, fontWeight: 500, color: "#1a1a1a" },
+  slNote: { fontSize: 9, fontWeight: 300, letterSpacing: "1px", textTransform: "uppercase", color: "#ccc", textAlign: "center", marginTop: 12 },
 };
