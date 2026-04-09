@@ -38,7 +38,9 @@ function extractBudget(q) {
 }
 
 function scoreProduct(product, includeTags, excludeTags) {
-  const productTags = (product.tags || []).map(t =>
+  // tags may be a JSONB array of strings or objects — handle both safely
+  const rawTags = product.tags || product.tag_list || [];
+  const productTags = rawTags.map(t =>
     (typeof t === "string" ? t : t.tag || t.name || "").toLowerCase()
   );
   if (excludeTags?.length) {
@@ -87,16 +89,17 @@ export default function App() {
     setSession(data);
     await supabase.from("rd_sessions")
       .update({ last_active: new Date().toISOString() }).eq("id", data.id);
-    loadProducts();
+    await loadProducts();
     loadShortlist(data.id);
   };
 
   const loadProducts = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("catalog")
-      .select("*, pricing_tiers(*), tags")
+      .select("*, pricing_tiers(*)")
       .eq("active", true)
       .order("popularity", { ascending: false });
+    if (error) { console.error("loadProducts error:", error); return; }
     if (data) {
       const mapped = data.map((p, i) => ({
         ...p,
@@ -135,7 +138,6 @@ export default function App() {
     logEvent("query", null, { query: q });
     saveConversation("user", q);
 
-    // Use ref so we always have latest products even if state hasn't propagated
     const allProducts = productsRef.current;
 
     try {
@@ -157,8 +159,8 @@ export default function App() {
       const excludeTags = data.exclude_tags || [];
 
       const newChips = [];
-      if (data.occasion && data.occasion !== "all") newChips.push(data.occasion.toUpperCase());
-      if (data.audience) newChips.push(data.audience.toUpperCase());
+      if (data.occasion && data.occasion !== "all") newChips.push(data.occasion.toUpperCase().replace(/-/g, " "));
+      if (data.audience) newChips.push(data.audience.toUpperCase().replace(/-/g, " "));
       if (budget < Infinity) newChips.push(`₹${budget.toLocaleString("en-IN")} / UNIT`);
       if (qty > 1) newChips.push(`${qty} UNITS`);
       if (data.exclude_edible) newChips.push({ label: "NON-EDIBLE", muted: true });
@@ -193,6 +195,7 @@ export default function App() {
       setResults(filtered.slice(0, 12));
       setSort("rec");
     } catch (e) {
+      console.error("Search error:", e);
       setResults(allProducts.slice(0, 12));
       setAiMessage("Here are some of our curated gifts. Refine your search to narrow it down.");
     }
@@ -308,17 +311,19 @@ export default function App() {
                 onKeyDown={e => e.key === "Enter" && doSearch(query)}
                 placeholder="e.g. Diwali gifts for 50 senior bankers, around ₹3,000…"
               />
-              <button style={S.btnDark} onClick={() => doSearch(query)} disabled={loading}>
-                {loading ? "Curating…" : "Find Gifts →"}
+              <button style={S.findBtn} onClick={() => doSearch(query)} disabled={loading}>
+                {loading ? "CURATING…" : "FIND GIFTS →"}
               </button>
             </div>
           </div>
           <div style={S.sugs}>
-            {["Diwali · leadership team", "Client thank-you", "New joiner onboarding", "Work anniversary"].map((s, i) => {
+            {["DIWALI · LEADERSHIP TEAM", "CLIENT THANK-YOU", "NEW JOINER ONBOARDING", "WORK ANNIVERSARY"].map((s, i) => {
               const st = SUG_STYLES[i % SUG_STYLES.length];
               return (
-                <span key={s} style={{ ...S.sug, color: st.color, border: `1px solid ${st.border}`, background: st.bg }}
-                  onClick={() => { setQuery(s); doSearch(s); }}>{s}</span>
+                <span key={s}
+                  style={{ ...S.sug, color: st.color, border: `1px solid ${st.border}`, background: st.bg }}
+                  onClick={() => { setQuery(s); doSearch(s); }}
+                >{s}</span>
               );
             })}
           </div>
@@ -336,8 +341,8 @@ export default function App() {
               onKeyDown={e => e.key === "Enter" && doSearch(query)}
               placeholder="Refine your search…"
             />
-            <button style={S.btnDark} onClick={() => doSearch(query)} disabled={loading}>
-              {loading ? "Curating…" : "Refine →"}
+            <button style={S.refineBtn} onClick={() => doSearch(query)} disabled={loading}>
+              {loading ? "CURATING…" : "REFINE →"}
             </button>
           </div>
 
@@ -369,17 +374,22 @@ export default function App() {
           <div style={S.body}>
             <div style={S.gridWrap}>
               <div style={S.meta}>
-                <div style={S.cnt}>{results.length} gifts curated</div>
+                <div style={S.cnt}>{results.length} GIFTS CURATED</div>
                 <div style={{ display: "flex" }}>
-                  {[["rec", "Recommended"], ["asc", "Price ↑"], ["desc", "Price ↓"]].map(([v, l]) => (
+                  {[["rec", "RECOMMENDED"], ["asc", "PRICE ↑"], ["desc", "PRICE ↓"]].map(([v, l]) => (
                     <button key={v} style={{ ...S.sortBtn, ...(sort === v ? S.sortOn : {}) }} onClick={() => setSort(v)}>{l}</button>
                   ))}
                 </div>
               </div>
 
               {loading ? (
-                <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "2px", textTransform: "uppercase" }}>
+                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "3px", textTransform: "uppercase" }}>
                   Curating your gifts…
+                </div>
+              ) : results.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "60px 0", letterSpacing: "2px", textTransform: "uppercase", lineHeight: 2 }}>
+                  No gifts found for this search.<br />
+                  <span style={{ fontSize: 12, color: "#ccc" }}>Try adjusting your budget or occasion.</span>
                 </div>
               ) : (
                 <div style={S.grid}>
@@ -415,12 +425,12 @@ export default function App() {
             {/* Shortlist */}
             <div style={S.sl}>
               <div style={S.slHdr}>
-                <div style={S.slTitle}>Shortlist</div>
-                <div style={S.slCount}>{hearted.size === 0 ? "Empty" : `${hearted.size} gift${hearted.size !== 1 ? "s" : ""}`}</div>
+                <div style={S.slTitle}>SHORTLIST</div>
+                <div style={S.slCount}>{hearted.size === 0 ? "EMPTY" : `${hearted.size} GIFT${hearted.size !== 1 ? "S" : ""}`}</div>
               </div>
               <div style={{ flex: 1, overflowY: "auto" }}>
                 {hearted.size === 0 ? (
-                  <div style={S.slEmpty}>Heart a gift<br />to save it here.</div>
+                  <div style={S.slEmpty}>HEART A GIFT<br />TO SAVE IT HERE.</div>
                 ) : shortlistedItems.map(p => (
                   <div key={p.id} style={S.slRow}>
                     <div style={{ width: 46, height: 54, background: p._bg, flexShrink: 0, overflow: "hidden" }}>
@@ -436,7 +446,7 @@ export default function App() {
               </div>
               <div style={S.slFooter}>
                 <div style={S.slTotalRow}>
-                  <div style={S.slTotalLbl}>Total</div>
+                  <div style={S.slTotalLbl}>TOTAL</div>
                   <div style={S.slTotalVal}>{hearted.size === 0 ? "—" : `₹${totalEstimate.toLocaleString("en-IN")}`}</div>
                 </div>
                 <button
@@ -444,9 +454,9 @@ export default function App() {
                   onClick={submitShortlist}
                   disabled={hearted.size === 0 || submitting}
                 >
-                  {submitting ? "Sending…" : "Send to Rock Dove →"}
+                  {submitting ? "SENDING…" : "SEND TO ROCK DOVE →"}
                 </button>
-                <div style={S.slNote}>We follow up within 24 hrs</div>
+                <div style={S.slNote}>WE FOLLOW UP WITHIN 24 HRS</div>
               </div>
             </div>
           </div>
@@ -473,17 +483,18 @@ const styles = {
   landing: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 40px", textAlign: "center" },
   welcome: { fontSize: 12, fontWeight: 600, letterSpacing: "3px", textTransform: "uppercase", color: "#C27B2A", marginBottom: 28 },
   h1: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 52, fontWeight: 500, color: "#1a1a1a", lineHeight: 1.15, maxWidth: 520, marginBottom: 48 },
-  searchWrap: { width: "100%", maxWidth: 580, marginBottom: 32 },
-  searchRow: { display: "flex", alignItems: "stretch", borderBottom: "1.5px solid #1a1a1a", paddingBottom: 8, gap: 16 },
-  inp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 15, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", outline: "none", background: "transparent", padding: "6px 0" },
-  sugs: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 580 },
-  sug: { fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "7px 16px", letterSpacing: "0.5px" },
+  searchWrap: { width: "100%", maxWidth: 620, marginBottom: 32 },
+  searchRow: { display: "flex", alignItems: "stretch", gap: 0 },
+  inp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 15, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", borderBottom: "1.5px solid #1a1a1a", outline: "none", background: "transparent", padding: "8px 0" },
+  findBtn: { background: "#1a1a1a", color: "#fff", border: "none", padding: "12px 28px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", flexShrink: 0, marginLeft: 16 },
+  sugs: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: 620 },
+  sug: { fontSize: 11, fontWeight: 600, cursor: "pointer", padding: "7px 16px", letterSpacing: "1px", textTransform: "uppercase" },
 
-  qbar: { padding: "0 40px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "stretch", background: "#fff", flexShrink: 0 },
+  qbar: { padding: "0 40px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "stretch", background: "#fff", flexShrink: 0, gap: 16 },
   qbarInp: { flex: 1, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 14, fontWeight: 300, letterSpacing: "0.5px", color: "#1a1a1a", border: "none", padding: "16px 0", outline: "none", background: "transparent" },
+  refineBtn: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 24px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", margin: "10px 0", flexShrink: 0 },
 
-  btnDark: { background: "#1a1a1a", color: "#fff", border: "none", padding: "0 28px", fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #c8bfb0", margin: "10px 0" },
-  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 15, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
+  btnGreen: { width: "100%", background: "#2C5F3A", color: "#fff", border: "none", padding: 15, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 5px 0 #a8d4b4", display: "block" },
 
   chipsRow: { padding: "10px 40px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid #eeebe6", flexShrink: 0 },
   chip: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#2C5F3A", padding: "5px 12px", border: "1px solid #a8c8b4", background: "#eaf2ec" },
@@ -518,8 +529,8 @@ const styles = {
   sl: { width: 248, background: "#fff", borderLeft: "1px solid #e8e2d8", display: "flex", flexDirection: "column", flexShrink: 0 },
   slHdr: { padding: "22px 20px 16px", borderBottom: "1px solid #eeebe6", display: "flex", alignItems: "baseline", justifyContent: "space-between", flexShrink: 0 },
   slTitle: { fontSize: 11, fontWeight: 600, letterSpacing: "2.5px", textTransform: "uppercase", color: "#1a1a1a" },
-  slCount: { fontSize: 11, fontWeight: 400, letterSpacing: "1px", color: "#bbb" },
-  slEmpty: { padding: "40px 20px", fontSize: 12, letterSpacing: "1.5px", textTransform: "uppercase", color: "#ccc", fontWeight: 400, lineHeight: 1.8, textAlign: "center" },
+  slCount: { fontSize: 11, fontWeight: 400, letterSpacing: "1px", textTransform: "uppercase", color: "#bbb" },
+  slEmpty: { padding: "40px 20px", fontSize: 11, letterSpacing: "2px", textTransform: "uppercase", color: "#ccc", fontWeight: 400, lineHeight: 1.8, textAlign: "center" },
   slRow: { display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: "1px solid #f5f0e8" },
   slName: { fontSize: 12, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 4 },
   slPrice: { fontSize: 12, fontWeight: 300, color: "#888" },
@@ -528,5 +539,5 @@ const styles = {
   slTotalRow: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #f0ece4" },
   slTotalLbl: { fontSize: 10, fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase", color: "#aaa" },
   slTotalVal: { fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 24, fontWeight: 500, color: "#1a1a1a" },
-  slNote: { fontSize: 10, fontWeight: 300, letterSpacing: "1px", textTransform: "uppercase", color: "#ccc", textAlign: "center", marginTop: 12 },
+  slNote: { fontSize: 10, fontWeight: 600, letterSpacing: "1.5px", textTransform: "uppercase", color: "#ccc", textAlign: "center", marginTop: 12 },
 };
