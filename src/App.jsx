@@ -138,38 +138,138 @@ function contextLine(chips) {
   return "Curated for exactly this brief.";
 }
 
-// Brief-aware one-line product positioning — client-side, no API call
-function briefPositioningLine(product, filters, chips) {
-  const tags = (product._tags || []);
-  const qty = filters?.qty || (chips?.find(c=>c.type==="qty") ? parseInt(chips.find(c=>c.type==="qty").label) : 0);
+// ─── PRODUCT LINE RULE ENGINE ─────────────────────────────────────────────
+// Generates brief-aware, varied one-line product positioning.
+// Structure: [Primary trait] + [Brief signal] + [Optional third clause]
+// Zero API cost. Deterministic per product+brief combination.
+
+const TRAIT_MAP = {
+  // Category-first primary traits — most specific wins
+  "Candles & Incense":      ["Ritual-use", "Ceremonial", "Ambient, non-consumable"],
+  "Incense & Ritual":       ["Ceremonial", "Ritual-use", "Ambient, non-consumable"],
+  "Marble & Stone":         ["Durable display piece", "Stone-crafted keepsake", "Material-led"],
+  "Marble & Brass":         ["Brass and stone", "Material-led statement", "Durable keepsake"],
+  "Brass Objects":          ["Ceremonial brass", "Durable, material-led", "Quietly authoritative"],
+  "Sculptures & Artefacts": ["Sculptural keepsake", "Made to be retained", "Ceremonial artefact"],
+  "Frames & Dcor":          ["Decor-forward piece", "Display keepsake", "Visual recall, long shelf life"],
+  "Desk & Office":          ["Desk-appropriate", "Practical, daily-use", "Functional keepsake"],
+  "Gift Sets":              ["Complete set", "Ready to gift", "Curated for ease of distribution"],
+  "Home Dcor":              ["Home accent", "Decor-forward", "Display piece with lasting presence"],
+  "Wellness":               ["Wellness-oriented", "Considered ritual", "Calm, personal touch"],
+  "Stationery":             ["Practical keepsake", "Desk-appropriate", "Useful, daily presence"],
+  "Books":                  ["Considered choice", "Literary keepsake", "Quietly distinctive"],
+  "Lifestyle":              ["Lifestyle-led", "Considered daily-use", "Understated presence"],
+};
+
+// Tag-based trait fallbacks when no category match
+function pickTrait(tags, category) {
+  if (TRAIT_MAP[category]) {
+    // Rotate through the category's traits using a hash of the category+tag combo
+    const opts = TRAIT_MAP[category];
+    const hash = (tags.join("").length + category.length) % opts.length;
+    return opts[hash];
+  }
+  if (tags.some(t => /ritual|ceremony|festive/.test(t))) return "Ceremonial";
+  if (tags.some(t => /keepsake|collectible/.test(t))) return "Keepsake value";
+  if (tags.some(t => /desk-use|desk-accessory/.test(t))) return "Desk-appropriate";
+  if (tags.some(t => /home-decor|display-only/.test(t))) return "Decor-forward piece";
+  if (tags.some(t => /wellness/.test(t))) return "Wellness-oriented";
+  if (tags.some(t => /artisan|handcraft/.test(t))) return "Artisan-made";
+  if (tags.some(t => /premium|luxury/.test(t))) return "High perceived value";
+  return "Considered piece";
+}
+
+// Brief-signal phrases — what the product offers given THIS brief
+function pickBriefSignal(product, filters, chips, idx) {
+  const tags = product._tags || [];
+  const qty = filters?.qty || 1;
   const budget = filters?.budget || null;
   const price = product._price || 0;
-  const isNonEdible = !product.edible && !tags.some(t => /edible|consumable|food|snack|beverage/.test(t));
+  const isLarge = qty >= 25;
   const isBulk = tags.some(t => /bulk-friendly|low-moq/.test(t)) || (product.moq && parseInt(product.moq) <= 50);
-  const isKeepsake = tags.some(t => /keepsake|collectible|heirloom/.test(t));
-  const isArtisan = tags.some(t => /handcraft|artisan|hand-finish/.test(t));
-  const isDesk = tags.some(t => /desk-use|desk-accessory/.test(t));
-  const isWellness = tags.some(t => /wellness/.test(t));
-  const isDisplay = tags.some(t => /display-only|home-decor|home-use/.test(t));
-  const hasConstraint = chips?.some(c => c.type === "constraint");
-  const isLarge = qty >= 30;
+  const isNonEdible = !product.edible && !tags.some(t => /edible|consumable|food|snack|beverage/.test(t));
+  const hasNoFoodConstraint = chips?.some(c => c.type === "constraint" && /consumable|food/i.test(c.label));
+  const underBudget = budget && price <= budget * 0.88;
 
-  const parts = [];
+  const signals = [];
 
-  if (hasConstraint && isNonEdible) parts.push("Non-consumable");
-  if (isLarge && isBulk) parts.push("easy to distribute at scale");
-  else if (isLarge) parts.push("suited for large orders");
-  if (isKeepsake) parts.push("strong recall value");
-  else if (isArtisan) parts.push("artisan provenance");
-  if (isDesk) parts.push("desk-appropriate");
-  if (isDisplay) parts.push("display piece");
-  if (isWellness) parts.push("wellness-oriented");
-  if (budget && price <= budget * 0.85) parts.push("well within budget");
+  // Non-consumable signal — only if brief asked for it
+  if (hasNoFoodConstraint && isNonEdible) {
+    signals.push(...["non-consumable", "keepsake-friendly", "non-consumable keepsake"]);
+  }
 
-  if (parts.length === 0) return null;
-  // Cap at 2 signals for readability
-  return parts.slice(0,2).join(" · ") + ".";
+  // Scale signals — vary based on index to avoid repetition
+  if (isLarge && isBulk) {
+    signals.push(...[
+      "suited for large guest lists",
+      "easy to distribute at scale",
+      "practical for bulk gifting",
+      "distributable at your scale",
+    ]);
+  } else if (isLarge) {
+    signals.push(...[
+      "suited for larger orders",
+      "works well at scale",
+    ]);
+  }
+
+  if (underBudget) signals.push("well within budget");
+
+  if (signals.length === 0) return null;
+  // Use index to rotate and avoid adjacent repetition
+  return signals[idx % signals.length];
 }
+
+// Optional third clause — signal about longevity/quality
+function pickSignal(tags, idx) {
+  const signals = [
+    "strong visual recall",
+    "made to be retained",
+    "lasting presence",
+    "high retention value",
+    "visually distinctive",
+    "endures beyond the occasion",
+  ];
+  // Only add if product warrants it
+  if (!tags.some(t => /keepsake|collectible|heritage|artisan|premium|luxury|handcraft/.test(t))) return null;
+  return signals[idx % signals.length];
+}
+
+// Assembly — 3 template formats for variation
+function assembleLine(trait, briefSignal, signal, idx) {
+  const parts = [trait, briefSignal, signal].filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0] + ".";
+
+  const templates = [
+    // Format A: comma-separated
+    () => parts.join(", ") + ".",
+    // Format B: primary and secondary
+    () => `${parts[0]} — ${parts.slice(1).join(", ")}.`,
+    // Format C: natural sentence
+    () => parts.length === 3
+      ? `${parts[0]}, ${parts[1]}, ${parts[2]}.`
+      : `${parts[0]}, ${parts[1]}.`,
+  ];
+
+  return templates[idx % templates.length]();
+}
+
+// MAIN ENTRY POINT — call this per product
+function briefPositioningLine(product, filters, chips, idx = 0) {
+  const tags = product._tags || [];
+  const category = product.category || "";
+
+  // Derive a stable-but-varied index per product to ensure rotation
+  const productIdx = (product.id || 0) + idx;
+
+  const trait = pickTrait(tags, category);
+  const briefSignal = pickBriefSignal(product, filters, chips, productIdx);
+  const signal = pickSignal(tags, productIdx + 1);
+
+  return assembleLine(trait, briefSignal, signal, productIdx);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
@@ -848,14 +948,27 @@ export default function App() {
                       <p style={S.dirBannerName}>{activeDirection.name}</p>
                       <p style={S.dirBannerTagline}>{activeDirection.tagline}</p>
 
-                      {/* "Selected for" — keeps the AI thread alive */}
+                      {/* "Selected for" — supplement parser with lastFilters so budget + constraint never disappear */}
                       {(() => {
-                        const chips = parseBrief(brief);
-                        if (!chips?.length) return null;
+                        const parsed = parseBrief(brief) || [];
+                        // Ensure budget chip exists — fall back to lastFilters
+                        const hasBudget = parsed.some(c => c.type === "budget");
+                        if (!hasBudget && lastFilters?.budget) {
+                          parsed.push({ label:`₹${lastFilters.budget.toLocaleString("en-IN")}`, type:"budget" });
+                        }
+                        // Ensure constraint chip exists
+                        const hasConstraint = parsed.some(c => c.type === "constraint");
+                        if (!hasConstraint && lastFilters?.exclude_edible) {
+                          parsed.push({ label:"Non-consumable", type:"constraint" });
+                        }
+                        if (!hasConstraint && lastFilters?.exclude_fragile) {
+                          parsed.push({ label:"Non-fragile", type:"constraint" });
+                        }
+                        if (!parsed.length) return null;
                         return (
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:10, flexWrap:"wrap" }}>
                             <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb" }}>Selected for:</span>
-                            {chips.map((c,i) => (
+                            {parsed.map((c,i) => (
                               <span key={i} style={{
                                 fontSize:11, color:"#666", background:SURFACE,
                                 border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
@@ -867,9 +980,16 @@ export default function App() {
                         );
                       })()}
 
-                      {/* Why this direction */}
+                      {/* Dove line — reuses briefSummary, keeps AI thread alive on grid page */}
+                      {briefSummary && (
+                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#666", margin:"10px 0 0", lineHeight:1.6 }}>
+                          <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
+                        </p>
+                      )}
+
+                      {/* "Chosen for" — functional reasoning, balances the poetic tagline */}
                       {activeDirection.description && (
-                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"10px 0 0", lineHeight:1.6 }}>
+                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"6px 0 0", lineHeight:1.6 }}>
                           {activeDirection.description}
                         </p>
                       )}
@@ -893,7 +1013,6 @@ export default function App() {
                     <p style={S.topPicksLabel}>Best fit for your brief</p>
                     <div style={S.topPicksGrid}>
                       {sortedGrid.slice(0,2).map((p,i) => {
-                        const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief));
                         return (
                           <div key={p.id} style={S.topCard}
                             onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
@@ -920,9 +1039,14 @@ export default function App() {
                 )}
 
                 {/* REMAINING GRID — equal weight, no labels */}
+                {sort === "rec" && sortedGrid.length > 2 && (
+                  <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 16px" }}>
+                    More options aligned to your brief
+                  </p>
+                )}
                 <div style={S.grid}>
-                  {(sort === "rec" ? sortedGrid.slice(2) : sortedGrid).map(p => {
-                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief));
+                  {(sort === "rec" ? sortedGrid.slice(2) : sortedGrid).map((p, i) => {
+                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i + 2);
                     return (
                       <div key={p.id} style={S.card}>
                         <div style={{ ...S.cardImg, background:p._bg||SURFACE }}
