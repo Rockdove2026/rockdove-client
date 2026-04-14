@@ -716,11 +716,13 @@ export default function App() {
             <div style={S.directionsWrap}>
               <div style={S.directionsHdr}>
                 <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
-                {/* SHARPER HEADLINE */}
+                {/* Brief echo — shows what was searched */}
+                {brief && (
+                  <p style={S.briefEcho}>"{brief.length > 90 ? brief.slice(0,90)+"…" : brief}"</p>
+                )}
                 <h2 style={S.directionsH2}>
                   Three directions. <em style={{ color:DOVE_BLUE }}>All viable.</em>
                 </h2>
-                {/* EMOTIONAL CONTEXT LINE */}
                 {briefSummary && (
                   <p style={S.directionsContext}>
                     {contextLine(liveChips || parseBrief(brief)) || briefSummary}
@@ -948,6 +950,7 @@ const styles = {
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
   directionsHdr: { marginBottom:36 },
   directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" },
+  briefEcho: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 16px", letterSpacing:"0.2px" },
   // SHARPER HEADLINE
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
   // EMOTIONAL CONTEXT LINE
