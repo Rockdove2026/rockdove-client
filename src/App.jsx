@@ -534,29 +534,42 @@ export default function App() {
               </div>
             </div>
           </div>
-          <p style={S.homeTagline}>Gift Intelligence by Ikka Dukka</p>
 
           <div style={S.hero}>
             <div style={S.heroLeft}>
+              <p style={S.homeTaglineLeft}>Gift Intelligence by Ikka Dukka</p>
               <h1 style={S.heroH1}>
                 Tell me what you need.<br/>
                 <em style={{ color:DOVE_BLUE }}>I'll take it from there.</em>
-                <span style={{ fontSize:22, marginLeft:8, color:DOVE_BLUE }}>✦</span>
               </h1>
-              <p style={S.heroSub}>One line is enough. Our AI gets the nuance.</p>
+              <p style={S.heroSub}>Describe your brief in one line. Include occasion, recipients, quantity and budget.</p>
 
-              {/* PREMIUM INPUT — soft shadow, no harsh border */}
+              {/* 4-dimension guide — what makes a good brief */}
+              <div style={S.briefGuideRow}>
+                {[
+                  { label:"Occasion", eg:"Diwali · onboarding · wedding" },
+                  { label:"Recipients", eg:"Senior clients · new hires" },
+                  { label:"Quantity", eg:"50 people · 200 gifts" },
+                  { label:"Budget", eg:"₹3,000 each · under ₹5k" },
+                ].map((g,i) => (
+                  <div key={i} style={S.briefGuideItem}>
+                    <p style={S.briefGuideLabel}>{g.label}</p>
+                    <p style={S.briefGuideEg}>{g.eg}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Input */}
               <div style={S.inputBox}>
                 <textarea
                   style={S.homeInput}
                   value={brief}
                   onChange={e => setBrief(e.target.value)}
                   onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSearch(); }}}
-                  placeholder="e.g. 50 senior bankers, Diwali, ₹3,000 budget"
+                  placeholder="e.g. 50 senior bankers, Diwali, ₹3,000 each, nothing edible"
                   rows={2}
                   autoFocus
                 />
-                {/* Send button — muted dove blue, embedded */}
                 <button
                   style={{ ...S.homeBtn, ...(!brief.trim()||thinking?{opacity:0.35,cursor:"not-allowed"}:{}) }}
                   onClick={() => handleSearch()}
@@ -566,35 +579,32 @@ export default function App() {
                 </button>
               </div>
 
-              {/* LIVE PARSING — shows semantic understanding as user types */}
+              {/* LIVE PARSING */}
               <div style={S.liveParseRow}>
                 {(() => {
                   const parsed = parseBrief(brief);
                   if (!parsed || parsed.length === 0) {
-                    return <span style={S.liveParseHint}>Understands budget, scale, occasions, constraints · Results in seconds</span>;
+                    return <span style={S.liveParseHint}>Results appear in seconds · No form, no steps</span>;
                   }
                   return (
                     <>
                       <span style={S.liveParseLabel}>Understood:</span>
-                      {parsed.map((c,i) => {
-                        const isBudget = c.type === "budget";
-                        const isConstraint = c.type === "constraint";
-                        return (
-                          <span key={i} style={{
-                            ...S.liveParsedChip,
-                            ...(isBudget ? S.liveParsedChipBudget : {}),
-                            ...(isConstraint ? S.liveParsedChipConstraint : {}),
-                          }}>{c.label}</span>
-                        );
-                      })}
+                      {parsed.map((c,i) => (
+                        <span key={i} style={{
+                          ...S.liveParsedChip,
+                          ...(c.type==="budget" ? S.liveParsedChipBudget : {}),
+                          ...(c.type==="constraint" ? S.liveParsedChipConstraint : {}),
+                        }}>{c.label}</span>
+                      ))}
                     </>
                   );
                 })()}
               </div>
 
+              {/* Quick starts */}
               <div style={S.quickStarts}>
-                <p style={S.quickStartLabel}>NEED INSPIRATION? TRY THESE</p>
-                <div style={{ display:"flex", gap:10 }}>
+                <p style={S.quickStartLabel}>Or try one of these</p>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
                   {QUICK_STARTS.map((q,i)=>(
                     <button key={i} style={S.quickChip} onClick={() => handleSearch(q.label)}>
                       {q.label} →
@@ -604,14 +614,25 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right panel — dark navy, less harsh */}
+            {/* Right — dark editorial panel */}
             <div style={S.heroRight}>
               <div style={S.heroDarkPanel}>
                 <p style={S.heroPanelEyebrow}>Ikka Dukka</p>
                 <p style={S.heroPanelHed}>Gifts that say<br/>the right things.</p>
+                <div style={S.heroPanelDivider}></div>
                 <div style={S.heroPanelPills}>
-                  {["Curated by AI","Refined by experts","Chosen with purpose"].map((t,i)=>(
-                    <span key={i} style={S.heroPanelPill}>{t}</span>
+                  {[
+                    { label:"Curated by AI", sub:"160+ handpicked gifts" },
+                    { label:"Refined by experts", sub:"Every direction reviewed" },
+                    { label:"Chosen with purpose", sub:"Matched to your brief" },
+                  ].map((t,i)=>(
+                    <div key={i} style={S.heroPanelPillRow}>
+                      <span style={{ fontSize:8, color:DOVE_BLUE, marginTop:3 }}>✦</span>
+                      <div>
+                        <p style={S.heroPanelPillLabel}>{t.label}</p>
+                        <p style={S.heroPanelPillSub}>{t.sub}</p>
+                      </div>
+                    </div>
                   ))}
                 </div>
                 <div style={S.heroPanelStats}>
@@ -619,14 +640,14 @@ export default function App() {
                   <div style={{ width:1, background:"rgba(255,255,255,0.1)", alignSelf:"stretch" }}></div>
                   <div><p style={S.statNum}>24hrs</p><p style={S.statLabel}>turnaround</p></div>
                   <div style={{ width:1, background:"rgba(255,255,255,0.1)", alignSelf:"stretch" }}></div>
-                  <div><p style={S.statNum}>India's</p><p style={S.statLabel}>finest makers</p></div>
+                  <div><p style={S.statNum}>100%</p><p style={S.statLabel}>Indian makers</p></div>
                 </div>
               </div>
             </div>
           </div>
 
           <div style={S.trustBar}>
-            <span style={S.trustLabel}>Trusted by teams at leading organisations</span>
+            <span style={S.trustLabel}>Trusted by teams at</span>
             {TRUST_LOGOS.map((l,i)=>(
               <span key={i} style={S.trustLogo}>{l}</span>
             ))}
@@ -910,55 +931,55 @@ const styles = {
   av: { width:36, height:36, borderRadius:"50%", background:"#7A90B0", fontSize:12, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
 
   homePage: { minHeight:"100vh", display:"flex", flexDirection:"column" },
-  homeNav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"20px 48px", borderBottom:`1px solid ${BORDER}` },
-  homeTagline: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", textAlign:"center", margin:"12px 0 0", fontWeight:300 },
+  homeNav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"18px 52px", borderBottom:`1px solid ${BORDER}` },
+  homeTaglineLeft: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 18px", fontWeight:300 },
   hero: { flex:1, display:"flex", gap:0, overflow:"hidden" },
-  heroLeft: { flex:"0 0 52%", padding:"52px 48px 40px", display:"flex", flexDirection:"column", justifyContent:"center" },
-  heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:42, fontWeight:700, color:"#111", lineHeight:1.2, margin:"0 0 16px", letterSpacing:-0.5 },
-  heroSub: { fontSize:15, fontWeight:300, color:"#888", margin:"0 0 28px", letterSpacing:"0.3px" },
+  heroLeft: { flex:"0 0 54%", padding:"44px 52px 36px", display:"flex", flexDirection:"column", justifyContent:"center" },
+  heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:40, fontWeight:700, color:DARK, lineHeight:1.2, margin:"0 0 12px", letterSpacing:-0.5 },
+  heroSub: { fontSize:14, fontWeight:300, color:"#777", margin:"0 0 24px", lineHeight:1.65 },
 
-  // PREMIUM INPUT — soft shadow, no harsh border
-  inputBox: {
-    display:"flex", alignItems:"flex-end",
-    background:"#fff",
-    border:`1px solid #D8D4CE`,
-    boxShadow:"0 2px 20px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04)",
-    marginBottom:12,
-  },
-  homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 10px", fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent" },
-  // Embedded send button — dove blue, not black
+  // 4-dimension brief guide
+  briefGuideRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 32px", marginBottom:22, paddingBottom:20, borderBottom:`1px solid ${BORDER}` },
+  briefGuideItem: { display:"flex", flexDirection:"column", gap:3 },
+  briefGuideLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#777", margin:0 },
+  briefGuideEg: { fontSize:12, fontWeight:300, color:"#bbb", margin:0 },
+
+  inputBox: { display:"flex", alignItems:"flex-end", background:"#fff", border:`1px solid #D0CBC3`, boxShadow:"0 2px 20px rgba(0,0,0,0.06)", marginBottom:10 },
+  homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 12px", fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:DARK, lineHeight:1.7, background:"transparent" },
   homeBtn: { width:52, height:52, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
 
   // LIVE PARSING ROW
   liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:28, marginBottom:24, flexWrap:"wrap" },
   liveParseLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", flexShrink:0 },
   liveParsedChip: { fontSize:12, color:"#444", background:SURFACE, padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
-  // Budget: blue text only, no fill — present but not dominant
   liveParsedChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
   liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
-  liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300, letterSpacing:"0.3px" },
+  liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300 },
 
   briefChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
   briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
 
-  quickStarts: { marginTop:"auto" },
-  quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 12px" },
+  quickStarts: { marginTop:"auto", paddingTop:20 },
+  quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 10px" },
   quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"6px 14px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
 
-  // Right panel — dark navy, less harsh than black
-  heroRight: { flex:"0 0 48%", position:"relative" },
-  heroDarkPanel: { position:"absolute", inset:0, background:PANEL_BG, padding:"52px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
-  heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.3)", margin:"0 0 20px" },
-  heroPanelHed: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:36, fontWeight:400, color:"#fff", lineHeight:1.25, margin:"0 0 32px" },
-  heroPanelPills: { display:"flex", flexDirection:"column", gap:10, marginBottom:48 },
+  heroRight: { flex:"0 0 46%", position:"relative" },
+  heroDarkPanel: { position:"absolute", inset:0, background:PANEL_BG, padding:"44px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
+  heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.3)", margin:"0 0 16px" },
+  heroPanelHed: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:400, color:"#fff", lineHeight:1.25, margin:"0 0 24px" },
+  heroPanelDivider: { height:1, background:"rgba(255,255,255,0.08)", margin:"0 0 28px" },
+  heroPanelPills: { display:"flex", flexDirection:"column", gap:16, marginBottom:36 },
+  heroPanelPillRow: { display:"flex", alignItems:"flex-start", gap:10 },
+  heroPanelPillLabel: { fontSize:13, color:"rgba(255,255,255,0.75)", fontWeight:400, margin:"0 0 2px" },
+  heroPanelPillSub: { fontSize:11, color:"rgba(255,255,255,0.35)", fontWeight:300, margin:0 },
   heroPanelPill: { fontSize:13, color:"rgba(255,255,255,0.5)", fontWeight:300 },
-  heroPanelStats: { display:"flex", alignItems:"center", gap:28, paddingTop:32, borderTop:"1px solid rgba(255,255,255,0.07)" },
-  statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:24, fontWeight:400, color:"#fff", margin:"0 0 3px" },
-  statLabel: { fontSize:11, color:"rgba(255,255,255,0.35)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
+  heroPanelStats: { display:"flex", alignItems:"center", gap:24, paddingTop:28, borderTop:"1px solid rgba(255,255,255,0.07)" },
+  statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:"#fff", margin:"0 0 3px" },
+  statLabel: { fontSize:10, color:"rgba(255,255,255,0.35)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
 
-  trustBar: { borderTop:`1px solid ${BORDER}`, padding:"18px 48px", display:"flex", alignItems:"center", gap:28, flexWrap:"wrap", background:SURFACE },
+  trustBar: { borderTop:`1px solid ${BORDER}`, padding:"16px 52px", display:"flex", alignItems:"center", gap:24, flexWrap:"wrap", background:SURFACE },
   trustLabel: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", flexShrink:0 },
-  trustLogo: { fontSize:12, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
+  trustLogo: { fontSize:11, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
 
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
   // Refine wrap — same premium feel as main input
