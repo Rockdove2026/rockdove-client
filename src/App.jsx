@@ -325,7 +325,7 @@ export default function App() {
       const idOrder = ranked.ranked_ids || [];
 
       setThinkingLabel("Creating editorial directions…");
-      const topCandidates = idOrder.slice(0, 30).map(id => candidates.find(c=>c.id===id)).filter(Boolean);
+      const topCandidates = idOrder.slice(0, 45).map(id => candidates.find(c=>c.id===id)).filter(Boolean);
 
       const dirRes = await fetch(CATALOGUE_URL + "/dove-directions", {
         method: "POST", headers: { "Content-Type": "application/json" },
