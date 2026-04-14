@@ -252,22 +252,28 @@ function assembleLine(trait, briefSignal, signal, idx) {
       : `${parts[0]}, ${parts[1]}.`,
   ];
 
-  return templates[idx % templates.length]();
+  const safeIdx = isNaN(idx) ? 0 : Math.abs(Math.floor(idx));
+  return templates[safeIdx % templates.length]();
 }
 
 // MAIN ENTRY POINT — call this per product
 function briefPositioningLine(product, filters, chips, idx = 0) {
-  const tags = product._tags || [];
-  const category = product.category || "";
+  try {
+    const tags = product._tags || [];
+    const category = product.category || "";
 
-  // Derive a stable-but-varied index per product to ensure rotation
-  const productIdx = (product.id || 0) + idx;
+    // Ensure productIdx is always a valid integer for array indexing
+    const idNum = parseInt(product.id, 10) || 0;
+    const productIdx = (isNaN(idNum) ? 0 : idNum) + (isNaN(idx) ? 0 : idx);
 
-  const trait = pickTrait(tags, category);
-  const briefSignal = pickBriefSignal(product, filters, chips, productIdx);
-  const signal = pickSignal(tags, productIdx + 1);
+    const trait = pickTrait(tags, category);
+    const briefSignal = pickBriefSignal(product, filters, chips, productIdx);
+    const signal = pickSignal(tags, productIdx + 1);
 
-  return assembleLine(trait, briefSignal, signal, productIdx);
+    return assembleLine(trait, briefSignal, signal, productIdx);
+  } catch(e) {
+    return null; // Never crash the render
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
