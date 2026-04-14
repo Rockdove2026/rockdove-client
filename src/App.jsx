@@ -52,11 +52,6 @@ Always respond with valid JSON only:
   }
 }`;
 
-const DOVE_FOLLOWUPS = [
-  "Do any of these feel right? Or shall I try a different angle?",
-  "I can go more premium, more artisan, or more practical — just say the word.",
-  "Want me to focus on one direction, or try something completely different?",
-];
 
 // Live parsing — pure client-side, no API call
 function parseBrief(text) {
@@ -176,13 +171,8 @@ export default function App() {
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
 
-  // Dove popup
-  const [dovePopupOpen, setDovePopupOpen] = useState(false);
-  const [dovePopupMsg, setDovePopupMsg] = useState("");
-  const [dovePopupInput, setDovePopupInput] = useState("");
-  const [dovePopupLoading, setDovePopupLoading] = useState(false);
-  const [dovePopupHistory, setDovePopupHistory] = useState([]);
-  const dovePopupTimer = useRef(null);
+  // Inline refinement state
+  const [refinedNote, setRefinedNote] = useState(""); // subtle AI response after chip click
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token") ||
@@ -197,19 +187,7 @@ export default function App() {
     setLiveChips(chips);
   }, [brief]);
 
-  // Dove popup on directions
-  useEffect(() => {
-    if (view === "directions" && directions.length > 0) {
-      clearTimeout(dovePopupTimer.current);
-      dovePopupTimer.current = setTimeout(() => {
-        const msg = DOVE_FOLLOWUPS[Math.floor(Math.random() * DOVE_FOLLOWUPS.length)];
-        setDovePopupMsg(msg);
-        setDovePopupHistory([{ role:"assistant", content: msg }]);
-        setDovePopupOpen(true);
-      }, 2000);
-    }
-    return () => clearTimeout(dovePopupTimer.current);
-  }, [view, directions]);
+  // (Dove speaks through the layout, not through a popup)
 
   const loadSession = async (token) => {
     try {
@@ -271,7 +249,7 @@ export default function App() {
     if (!q || thinking) return;
     setBrief(q);
     setThinking(true);
-    setDovePopupOpen(false);
+    setRefinedNote("");
     setView("thinking");
     saveConvo("user", q);
     const allProducts = productsRef.current;
@@ -366,46 +344,11 @@ export default function App() {
     setRefining(false);
   };
 
-  const handleDovePopupSend = async () => {
-    const text = dovePopupInput.trim();
-    if (!text || dovePopupLoading) return;
-    setDovePopupInput("");
-    setDovePopupLoading(true);
-    saveConvo("user", text);
-
-    try {
-      const res = await fetch(CATALOGUE_URL + "/dove-chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          conversation_history: [...intakeHistory, ...dovePopupHistory],
-          system_override: INTAKE_SYSTEM,
-        }),
-      });
-      const data = await res.json();
-      saveConvo("dove", data.response);
-      const newPopupHistory = [...dovePopupHistory, { role:"user", content:text }, { role:"assistant", content:data.response }];
-      setDovePopupHistory(newPopupHistory);
-      setDovePopupMsg(data.response);
-
-      if (data.ready && data.filters) {
-        setDovePopupOpen(false);
-        const combined = data.filters.query || text;
-        setBrief(combined);
-        await handleSearch(combined);
-      }
-    } catch(e) {
-      setDovePopupMsg("Let me try again — tell me what you'd like to change.");
-    }
-    setDovePopupLoading(false);
-  };
-
   const exploreDirection = (direction) => {
     setActiveDirection(direction);
     setGridProducts(direction.products || []);
     setSort("rec");
     setView("grid");
-    setDovePopupOpen(false);
     logEvent("direction_explore", null, { direction_name: direction.name });
   };
 
@@ -539,51 +482,15 @@ export default function App() {
     </div>
   ) : null;
 
-  const DovePopup = () => dovePopupOpen ? (
-    <div style={S.dovePopup}>
-      <div style={S.dovePopupHdr}>
-        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <span style={S.doveDot}></span>
-          <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DOVE_BLUE }}>Dove</span>
-        </div>
-        <button style={{ background:"none", border:"none", fontSize:18, color:"#aaa", cursor:"pointer", lineHeight:1 }}
-          onClick={() => setDovePopupOpen(false)}>×</button>
-      </div>
-      <div style={S.dovePopupMsg}>
-        <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontStyle:"italic", fontWeight:300, color:"#1a1a1a", lineHeight:1.75, margin:0 }}>
-          {dovePopupMsg}
-        </p>
-      </div>
-      <div style={S.dovePopupSuggs}>
-        {["Yes, explore all three","Try more premium","Nothing edible","Try a different angle"].map((s,i)=>(
-          <button key={i} style={S.dovePopupSugg} onClick={() => setDovePopupInput(s)}>{s}</button>
-        ))}
-      </div>
-      <div style={S.dovePopupInputRow}>
-        <input
-          style={S.dovePopupInput}
-          value={dovePopupInput}
-          onChange={e => setDovePopupInput(e.target.value)}
-          onKeyDown={e => e.key==="Enter" && handleDovePopupSend()}
-          placeholder="Tell Dove…"
-          disabled={dovePopupLoading}
-          autoFocus
-        />
-        <button
-          style={{ ...S.dovePopupSendBtn, ...(!dovePopupInput.trim()||dovePopupLoading?{opacity:0.35,cursor:"not-allowed"}:{}) }}
-          onClick={handleDovePopupSend}
-          disabled={!dovePopupInput.trim()||dovePopupLoading}
-        >
-          {dovePopupLoading ? "…" : "→"}
-        </button>
-      </div>
-    </div>
-  ) : (
-    <button style={S.dovePopupPill} onClick={() => setDovePopupOpen(true)}>
-      <span style={S.doveDot}></span>
-      <span style={{ fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:DOVE_BLUE }}>Ask Dove</span>
-    </button>
-  );
+  // Inline refinement chips — AI speaks through layout, not chat
+  const REFINE_CHIPS = [
+    { label:"More premium", query:" more premium, ultra-luxury only" },
+    { label:"No edibles", query:" nothing edible or consumable" },
+    { label:"Non-fragile", query:" nothing fragile, courier-safe" },
+    { label:"More artisan", query:" handcrafted, artisan-made, Indian craft" },
+    { label:"More practical", query:" desk-friendly, practical, everyday use" },
+    { label:"Different angle", query:" completely different style and category" },
+  ];
 
   return (
     <div style={{ ...S.app, background:BG }}>
@@ -716,7 +623,6 @@ export default function App() {
             <div style={S.directionsWrap}>
               <div style={S.directionsHdr}>
                 <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
-                {/* Brief echo — shows what was searched */}
                 {brief && (
                   <p style={S.briefEcho}>"{brief.length > 90 ? brief.slice(0,90)+"…" : brief}"</p>
                 )}
@@ -726,6 +632,27 @@ export default function App() {
                 {briefSummary && (
                   <p style={S.directionsContext}>
                     {contextLine(liveChips || parseBrief(brief)) || briefSummary}
+                  </p>
+                )}
+                {/* Inline refinement — ambient, not intrusive */}
+                <div style={S.refineChipsRow}>
+                  <span style={S.refineChipsLabel}>Refine:</span>
+                  {REFINE_CHIPS.map((c,i) => (
+                    <button key={i} style={S.refineChipBtn}
+                      onClick={() => {
+                        const refined = brief + c.query;
+                        setBrief(refined);
+                        setRefinedNote("Adjusted toward " + c.label.toLowerCase() + " selections.");
+                        handleSearch(refined);
+                      }}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                {refinedNote && (
+                  <p style={S.refinedNote}>
+                    <span style={{ color:DOVE_BLUE, marginRight:6 }}>✦</span>
+                    {refinedNote}
                   </p>
                 )}
               </div>
@@ -758,7 +685,6 @@ export default function App() {
               </div>
             </div>
           </div>
-          <DovePopup />
         </div>
       )}
 
@@ -961,8 +887,14 @@ const styles = {
   dirCardImg: { display:"flex", height:220, overflow:"hidden" },
   dirCardThumb: { flex:1, overflow:"hidden" },
   dirCardBody: { padding:"24px 24px 16px", flex:1 },
-  dirCardNum: { fontSize:9, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:DOVE_BLUE, margin:"0 0 8px" },
+  dirCardNum: { fontSize:9, fontWeight:400, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 6px" },
   dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 6px", lineHeight:1.2 },
+
+  // Inline refinement chips
+  refineChipsRow: { display:"flex", alignItems:"center", gap:8, marginTop:20, flexWrap:"wrap" },
+  refineChipsLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", flexShrink:0 },
+  refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#555", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, transition:"all 0.15s" },
+  refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
   dirCardTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#666", margin:"0 0 10px", lineHeight:1.6 },
   dirCardDesc: { fontSize:13, fontWeight:300, color:"#aaa", margin:"0 0 16px", lineHeight:1.5 },
   dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:18, fontWeight:400, color:DARK, margin:"0 0 4px" },
@@ -997,15 +929,6 @@ const styles = {
   btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
 
   doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0 },
-  dovePopup: { position:"fixed", bottom:28, right:32, width:320, background:"#fff", border:`1.5px solid ${DOVE_BLUE}`, boxShadow:"0 8px 32px rgba(0,0,0,0.12)", zIndex:200, display:"flex", flexDirection:"column" },
-  dovePopupHdr: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 16px 10px", borderBottom:`1px solid ${BORDER}` },
-  dovePopupMsg: { padding:"16px 16px 10px" },
-  dovePopupSuggs: { display:"flex", flexWrap:"wrap", gap:6, padding:"0 16px 12px" },
-  dovePopupSugg: { fontFamily:"Georgia,serif", fontSize:12, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, background:"none", border:`1px solid #d0dde8`, padding:"4px 10px", cursor:"pointer", lineHeight:1.4 },
-  dovePopupInputRow: { display:"flex", borderTop:`1px solid ${BORDER}` },
-  dovePopupInput: { flex:1, border:"none", outline:"none", padding:"11px 14px", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#111", background:"transparent" },
-  dovePopupSendBtn: { width:44, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:17, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
-  dovePopupPill: { position:"fixed", bottom:28, right:32, display:"flex", alignItems:"center", gap:8, background:"#fff", border:`1.5px solid ${DOVE_BLUE}`, padding:"10px 18px", cursor:"pointer", boxShadow:"0 4px 16px rgba(107,140,174,0.2)", zIndex:200, fontFamily:"'Josefin Sans',sans-serif" },
 
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:820, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
