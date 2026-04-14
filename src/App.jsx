@@ -51,6 +51,13 @@ Always respond with valid JSON only:
   }
 }`;
 
+// Dove follow-up prompts shown after directions are displayed
+const DOVE_FOLLOWUPS = [
+  "Do any of these feel right? Or shall I try a different angle?",
+  "I can go more premium, more artisan, or more practical — just say the word.",
+  "Want me to focus on one of these directions, or try something completely different?",
+];
+
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
   try {
@@ -108,12 +115,34 @@ export default function App() {
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
 
+  // Dove chat popup state
+  const [dovePopupOpen, setDovePopupOpen] = useState(false);
+  const [dovePopupMsg, setDovePopupMsg] = useState("");
+  const [dovePopupInput, setDovePopupInput] = useState("");
+  const [dovePopupLoading, setDovePopupLoading] = useState(false);
+  const [dovePopupHistory, setDovePopupHistory] = useState([]);
+  const dovePopupTimer = useRef(null);
+
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token") ||
       window.location.pathname.split("/").pop();
     if (token && token !== "/") loadSession(token);
     else setNotFound(true);
   }, []);
+
+  // Show Dove popup after directions load
+  useEffect(() => {
+    if (view === "directions" && directions.length > 0) {
+      clearTimeout(dovePopupTimer.current);
+      dovePopupTimer.current = setTimeout(() => {
+        const msg = DOVE_FOLLOWUPS[Math.floor(Math.random() * DOVE_FOLLOWUPS.length)];
+        setDovePopupMsg(msg);
+        setDovePopupHistory([{ role:"assistant", content: msg }]);
+        setDovePopupOpen(true);
+      }, 2000);
+    }
+    return () => clearTimeout(dovePopupTimer.current);
+  }, [view, directions]);
 
   const loadSession = async (token) => {
     try {
@@ -175,9 +204,9 @@ export default function App() {
     if (!q || thinking) return;
     setBrief(q);
     setThinking(true);
+    setDovePopupOpen(false);
     setView("thinking");
     saveConvo("user", q);
-
     const allProducts = productsRef.current;
 
     try {
@@ -237,7 +266,6 @@ export default function App() {
       const productMap = {};
       allProducts.forEach(p => { productMap[p.id] = { ...p, _price: priceAtQty(p.pricing_tiers, qty) }; });
 
-      // FIX: Calculate price range from actual product prices, not Claude's estimates
       const enrichedDirections = (dirData.directions||[]).map(d => {
         const prods = (d.product_ids||[]).map(id => productMap[id]).filter(Boolean);
         const prices = prods.map(p => p._price||0).filter(v => v > 0);
@@ -271,11 +299,53 @@ export default function App() {
     setRefining(false);
   };
 
+  // Dove popup chat — handles response and re-searches if needed
+  const handleDovePopupSend = async () => {
+    const text = dovePopupInput.trim();
+    if (!text || dovePopupLoading) return;
+    setDovePopupInput("");
+    setDovePopupLoading(true);
+    saveConvo("user", text);
+
+    try {
+      const res = await fetch(CATALOGUE_URL + "/dove-chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          conversation_history: [...intakeHistory, ...dovePopupHistory],
+          system_override: INTAKE_SYSTEM,
+        }),
+      });
+      const data = await res.json();
+      saveConvo("dove", data.response);
+
+      const newPopupHistory = [...dovePopupHistory, { role:"user", content:text }, { role:"assistant", content:data.response }];
+      setDovePopupHistory(newPopupHistory);
+      setDovePopupMsg(data.response);
+
+      if (data.ready && data.filters) {
+        // New filters — re-run directions
+        setDovePopupOpen(false);
+        const combined = data.filters.query || text;
+        setBrief(combined);
+        await handleSearch(combined);
+      } else if (!data.ready) {
+        // Dove replied but needs more — show reply, keep popup open
+        setDovePopupLoading(false);
+      }
+    } catch(e) {
+      setDovePopupMsg("Let me try again — tell me what you'd like to change.");
+      setDovePopupLoading(false);
+    }
+    setDovePopupLoading(false);
+  };
+
   const exploreDirection = (direction) => {
     setActiveDirection(direction);
     setGridProducts(direction.products || []);
     setSort("rec");
     setView("grid");
+    setDovePopupOpen(false);
     logEvent("direction_explore", null, { direction_name: direction.name });
   };
 
@@ -352,7 +422,6 @@ export default function App() {
           placeholder="Refine — e.g. more premium, nothing fragile, under ₹2,000…"
           disabled={refining || thinking}
         />
-        {/* FIX: Text button instead of icon */}
         <button style={{ ...S.refineBtn, ...(!refineText.trim()||refining?{opacity:0.4,cursor:"not-allowed"}:{}) }}
           onClick={handleRefine} disabled={!refineText.trim()||refining}>
           {refining ? "…" : "Refine →"}
@@ -409,10 +478,61 @@ export default function App() {
     </div>
   ) : null;
 
+  // Dove chat popup — appears on directions page
+  const DovePopup = () => dovePopupOpen ? (
+    <div style={S.dovePopup}>
+      <div style={S.dovePopupHdr}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={S.doveDot}></span>
+          <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DOVE_BLUE }}>Dove</span>
+        </div>
+        <button style={{ background:"none", border:"none", fontSize:18, color:"#aaa", cursor:"pointer", lineHeight:1 }}
+          onClick={() => setDovePopupOpen(false)}>×</button>
+      </div>
+      <div style={S.dovePopupMsg}>
+        <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontStyle:"italic", fontWeight:300, color:"#1a1a1a", lineHeight:1.75, margin:0 }}>
+          {dovePopupMsg}
+        </p>
+      </div>
+      <div style={S.dovePopupSuggs}>
+        {["Yes, explore all three","Try more premium","Nothing edible","Try a different angle"].map((s,i)=>(
+          <button key={i} style={S.dovePopupSugg}
+            onClick={() => { setDovePopupInput(s); }}>
+            {s}
+          </button>
+        ))}
+      </div>
+      <div style={S.dovePopupInputRow}>
+        <input
+          style={S.dovePopupInput}
+          value={dovePopupInput}
+          onChange={e => setDovePopupInput(e.target.value)}
+          onKeyDown={e => e.key==="Enter" && handleDovePopupSend()}
+          placeholder="Tell Dove…"
+          disabled={dovePopupLoading}
+          autoFocus
+        />
+        <button
+          style={{ ...S.dovePopupSendBtn, ...(!dovePopupInput.trim()||dovePopupLoading?{opacity:0.35,cursor:"not-allowed"}:{}) }}
+          onClick={handleDovePopupSend}
+          disabled={!dovePopupInput.trim()||dovePopupLoading}
+        >
+          {dovePopupLoading ? "…" : "→"}
+        </button>
+      </div>
+    </div>
+  ) : (
+    // Collapsed pill — click to reopen
+    <button style={S.dovePopupPill} onClick={() => setDovePopupOpen(true)}>
+      <span style={S.doveDot}></span>
+      <span style={{ fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:DOVE_BLUE }}>Ask Dove</span>
+    </button>
+  );
+
   return (
     <div style={{ ...S.app, background:BG }}>
 
-      {/* ── HOME ── */}
+      {/* HOME */}
       {view === "home" && (
         <div style={S.homePage}>
           <div style={S.homeNav}>
@@ -462,7 +582,6 @@ export default function App() {
                 <span style={S.metaPill}>Results in seconds</span>
               </div>
 
-              {/* FIX: no flexWrap, nowrap on chips */}
               <div style={S.quickStarts}>
                 <p style={S.quickStartLabel}>NEED INSPIRATION? TRY THESE</p>
                 <div style={{ display:"flex", gap:10 }}>
@@ -504,7 +623,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── THINKING ── */}
+      {/* THINKING */}
       {view === "thinking" && (
         <div style={S.fullCenter}>
           <Logo size="xl" />
@@ -522,7 +641,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── DIRECTIONS ── */}
+      {/* DIRECTIONS */}
       {view === "directions" && (
         <div style={{ ...S.resultsPage, background:BG }}>
           <TopBar />
@@ -566,11 +685,12 @@ export default function App() {
               </div>
             </div>
           </div>
-          <ShortlistDrawer />
+          {/* Dove popup — always visible on directions page */}
+          <DovePopup />
         </div>
       )}
 
-      {/* ── GRID ── */}
+      {/* GRID */}
       {view === "grid" && (
         <div style={{ ...S.resultsPage, background:BG }}>
           <TopBar />
@@ -638,7 +758,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── MODAL ── */}
+      {/* MODAL — square image */}
       {selectedProduct?.id && (() => {
         const p = selectedProduct;
         const price = p._price || 0;
@@ -649,9 +769,10 @@ export default function App() {
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
               <button style={S.modalClose} onClick={()=>setSelectedProduct(null)}>×</button>
               <div style={S.modalInner}>
-                <div style={S.modalImg}>
+                {/* Square image panel */}
+                <div style={S.modalImgWrap}>
                   {p.image_url ? (
-                    <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} onError={e=>{e.target.style.display="none"}} />
+                    <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}} />
                   ) : (
                     <div style={{ width:"100%", height:"100%", background:p._bg||SURFACE, display:"flex", alignItems:"center", justifyContent:"center" }}>
                       <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category||""}</span>
@@ -705,35 +826,28 @@ const styles = {
   homePage: { minHeight:"100vh", display:"flex", flexDirection:"column" },
   homeNav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"20px 48px", borderBottom:`1px solid ${BORDER}` },
   homeTagline: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", textAlign:"center", margin:"12px 0 0", fontWeight:300 },
-
   hero: { flex:1, display:"flex", gap:0, overflow:"hidden" },
   heroLeft: { flex:"0 0 52%", padding:"52px 48px 40px", display:"flex", flexDirection:"column", justifyContent:"center" },
   heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:42, fontWeight:700, color:"#111", lineHeight:1.2, margin:"0 0 16px", letterSpacing:-0.5 },
   heroSub: { fontSize:15, fontWeight:300, color:"#888", margin:"0 0 32px", letterSpacing:"0.3px" },
-
   inputBox: { display:"flex", alignItems:"flex-end", border:"1.5px solid #111", background:"#fff", marginBottom:14 },
   homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 10px", fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent" },
   homeBtn: { width:52, height:52, background:"#111", border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
-
   inputMeta: { display:"flex", alignItems:"center", gap:8, marginBottom:32 },
   metaPill: { fontSize:12, color:"#aaa", fontWeight:300 },
   metaDivider: { color:"#ddd" },
-
   quickStarts: { marginTop:"auto" },
   quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 12px" },
-  // FIX: nowrap so chips stay on one line
   quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"6px 14px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
-
   heroRight: { flex:"0 0 48%", position:"relative" },
   heroDarkPanel: { position:"absolute", inset:0, background:"#1a1a1a", padding:"52px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
   heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.35)", margin:"0 0 20px" },
   heroPanelHed: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:36, fontWeight:400, color:"#fff", lineHeight:1.25, margin:"0 0 32px" },
   heroPanelPills: { display:"flex", flexDirection:"column", gap:10, marginBottom:48 },
-  heroPanelPill: { fontSize:13, color:"rgba(255,255,255,0.55)", fontWeight:300, display:"flex", alignItems:"center", gap:8 },
+  heroPanelPill: { fontSize:13, color:"rgba(255,255,255,0.55)", fontWeight:300 },
   heroPanelStats: { display:"flex", alignItems:"center", gap:28, paddingTop:32, borderTop:"1px solid rgba(255,255,255,0.08)" },
   statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:24, fontWeight:400, color:"#fff", margin:"0 0 3px" },
   statLabel: { fontSize:11, color:"rgba(255,255,255,0.4)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
-
   trustBar: { borderTop:`1px solid ${BORDER}`, padding:"18px 48px", display:"flex", alignItems:"center", gap:28, flexWrap:"wrap", background:SURFACE },
   trustLabel: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", flexShrink:0 },
   trustLogo: { fontSize:12, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
@@ -741,17 +855,15 @@ const styles = {
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
   refineWrap: { flex:1, display:"flex", border:`1px solid ${BORDER}`, height:36 },
   refineInput: { flex:1, border:"none", outline:"none", padding:"7px 14px", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#111", background:"transparent" },
-  // FIX: text button, wider
   refineBtn: { padding:"0 16px", background:GREEN, border:"none", cursor:"pointer", color:"#fff", fontSize:12, fontWeight:600, letterSpacing:"1px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif", whiteSpace:"nowrap" },
   shortlistBtn: { background:GREEN, color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
 
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
-  directionsHdr: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:36 },
+  directionsHdr: { marginBottom:36 },
   directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" },
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:32, fontWeight:700, color:DARK, margin:"0 0 8px", lineHeight:1.2 },
   directionsSummary: { fontFamily:"Georgia,serif", fontSize:15, fontStyle:"italic", fontWeight:300, color:"#888", margin:0 },
-
   directionCards: { display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:24 },
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
   dirCardImg: { display:"flex", height:220, overflow:"hidden" },
@@ -792,10 +904,29 @@ const styles = {
   drawerFtr: { padding:18, borderTop:`1px solid ${BORDER}`, flexShrink:0 },
   btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
 
+  // Dove popup
+  doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0 },
+  dovePopup: {
+    position:"fixed", bottom:28, right:32, width:320,
+    background:"#fff", border:`1.5px solid ${DOVE_BLUE}`,
+    boxShadow:"0 8px 32px rgba(0,0,0,0.12)",
+    zIndex:200, display:"flex", flexDirection:"column",
+  },
+  dovePopupHdr: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 16px 10px", borderBottom:`1px solid ${BORDER}` },
+  dovePopupMsg: { padding:"16px 16px 10px" },
+  dovePopupSuggs: { display:"flex", flexWrap:"wrap", gap:6, padding:"0 16px 12px" },
+  dovePopupSugg: { fontFamily:"Georgia,serif", fontSize:12, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, background:"none", border:`1px solid #d0dde8`, padding:"4px 10px", cursor:"pointer", lineHeight:1.4 },
+  dovePopupInputRow: { display:"flex", borderTop:`1px solid ${BORDER}` },
+  dovePopupInput: { flex:1, border:"none", outline:"none", padding:"11px 14px", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#111", background:"transparent" },
+  dovePopupSendBtn: { width:44, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:17, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
+  dovePopupPill: { position:"fixed", bottom:28, right:32, display:"flex", alignItems:"center", gap:8, background:"#fff", border:`1.5px solid ${DOVE_BLUE}`, padding:"10px 18px", cursor:"pointer", boxShadow:"0 4px 16px rgba(107,140,174,0.2)", zIndex:200, fontFamily:"'Josefin Sans',sans-serif" },
+
+  // Modal — square image
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:820, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
-  modalInner: { display:"flex", flex:1, minHeight:480, overflow:"hidden" },
-  modalImg: { width:340, minWidth:340, flexShrink:0, background:SURFACE, overflow:"hidden" },
+  modalInner: { display:"flex", flex:1, overflow:"hidden" },
+  // Square: explicit width and height equal, objectFit:contain so nothing is cropped
+  modalImgWrap: { width:380, height:380, minWidth:380, flexShrink:0, background:SURFACE, overflow:"hidden" },
   modalContent: { flex:1, padding:"32px 28px", overflowY:"auto" },
 };
