@@ -105,10 +105,10 @@ function parseBrief(text) {
   }
   if (budgetAmount) chips.push({ label:`₹${budgetAmount.toLocaleString("en-IN")}`, type:"budget" });
 
-  // Constraints — emphasised
-  if (/no food|non.edible|no edible|no consumable|nothing edible/.test(t))
+  // Constraints — widen patterns to catch more natural language
+  if (/no food|non.?edible|no edible|no consumable|nothing edible|not edible|no eatables?|no snack|no sweet|no mithai/.test(t))
     chips.push({ label:"Non-consumable", type:"constraint" });
-  if (/non.fragile|nothing fragile|no fragile|courier/.test(t))
+  if (/non.?fragile|nothing fragile|no fragile|not fragile|courier.?safe|shippable/.test(t))
     chips.push({ label:"Non-fragile", type:"constraint" });
 
   return chips.length > 0 ? chips : null;
@@ -130,7 +130,7 @@ function contextLine(chips) {
   const isClient = chips.some(c => /client/i.test(c));
 
   if (isSenior && isDiwali) return "For senior teams where the gift reflects judgment, not just budget.";
-  if (isWedding) return "For guests who remember the gesture long after the day.";
+  if (isWedding) return "For guests who remember the gesture, long after the day.";
   if (isSenior) return "For people who notice the difference between considered and generic.";
   if (isDiwali) return "Festive, but never predictable.";
   if (isOnboard) return "A first impression that sets the tone for everything after.";
@@ -661,7 +661,7 @@ export default function App() {
               <div style={S.directionsHdr}>
                 <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
 
-                {/* Structured brief chips — not raw quoted input */}
+                {/* Structured brief chips */}
                 {(() => {
                   const chips = parseBrief(brief);
                   if (!chips?.length) return null;
@@ -693,9 +693,9 @@ export default function App() {
                   </p>
                 )}
 
-                {/* Decision confidence cue */}
+                {/* Decision confidence cue — slightly more present */}
                 <p style={S.confidenceCue}>
-                  All three are aligned to your brief. Choose based on tone.
+                  All three fit your brief — choose based on tone.
                 </p>
 
                 {/* Refinement chips — two groups with visual hierarchy */}
@@ -749,7 +749,7 @@ export default function App() {
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                           <p style={{ ...S.dirCardNum, margin:0 }}>Direction {d.number}</p>
                           {i === 0 && <span style={S.dirBadge}>Most chosen</span>}
-                          {i === 1 && <span style={S.dirBadge}>Balanced option</span>}
+                          {i === 1 && <span style={S.dirBadge}>Well balanced</span>}
                           {i === 2 && <span style={S.dirBadge}>Statement choice</span>}
                         </div>
                         <p style={S.dirCardName}>{d.name}</p>
@@ -759,7 +759,9 @@ export default function App() {
                           <p style={S.dirCardMicroTags}>{microTags.join(" · ")}</p>
                         )}
                         <p style={S.dirCardPrice}>
-                          ₹{(d.price_min||0).toLocaleString("en-IN")} – ₹{(d.price_max||0).toLocaleString("en-IN")}
+                          {(d.price_min||0) === (d.price_max||0)
+                            ? `₹${(d.price_min||0).toLocaleString("en-IN")}`
+                            : `₹${(d.price_min||0).toLocaleString("en-IN")} – ₹${(d.price_max||0).toLocaleString("en-IN")}`}
                         </p>
                         <p style={S.dirCardCount}>{(d.products||[]).length} gifts in this edit</p>
                       </div>
@@ -931,15 +933,13 @@ const styles = {
   liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:28, marginBottom:24, flexWrap:"wrap" },
   liveParseLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", flexShrink:0 },
   liveParsedChip: { fontSize:12, color:"#444", background:SURFACE, padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
-  liveParsedChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`1px solid rgba(107,140,174,0.3)`, fontWeight:600 },
-  liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.07)", border:`1px solid rgba(122,74,42,0.25)`, fontWeight:500 },
+  // Budget: blue text only, no fill — present but not dominant
+  liveParsedChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
+  liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
   liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300, letterSpacing:"0.3px" },
 
-  // Brief chips on results page — same semantic colours
-  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:18 },
-  briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
-  briefChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`1px solid rgba(107,140,174,0.3)`, fontWeight:600 },
-  briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.07)", border:`1px solid rgba(122,74,42,0.25)`, fontWeight:500 },
+  briefChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
+  briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
 
   quickStarts: { marginTop:"auto" },
   quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 12px" },
@@ -970,31 +970,25 @@ const styles = {
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
   directionsHdr: { marginBottom:36 },
-  directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 12px" },
+  directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 14px" },
 
-  // Structured brief chips — replaces raw quoted echo
-  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:18 },
-  briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400, letterSpacing:"0.2px" },
+  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:22 },
+  briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
+  briefChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
+  briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
 
+  directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
   directionsIntel: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", margin:"8px 0 6px", lineHeight:1.6 },
-  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#999", margin:"0 0 14px", lineHeight:1.5 },
+  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888", margin:"0 0 10px", lineHeight:1.5 },
+  confidenceCue: { fontSize:12, color:"#888", letterSpacing:"0.3px", margin:"0 0 20px", fontWeight:400 },
 
-  // Decision confidence cue
-  confidenceCue: { fontSize:12, color:"#bbb", letterSpacing:"0.5px", margin:"0 0 18px", fontWeight:300 },
-
-  // Inline refinement chips — two groups
   refineChipsRow: { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:4 },
   refineChipsLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", flexShrink:0 },
   refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#333", background:"none", border:`1px solid #ccc`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
-  refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#999", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
+  refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#999", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, marginLeft:4 },
   refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
 
-  // Direction badge
-  dirBadge: { fontSize:9, fontWeight:500, letterSpacing:"1.5px", textTransform:"uppercase", color:"#aaa", border:`1px solid #e8e5df`, padding:"2px 8px" },
-  // SHARPER HEADLINE
-  directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
-  // EMOTIONAL CONTEXT LINE
-  directionsContext: { fontFamily:"Georgia,serif", fontSize:16, fontStyle:"italic", fontWeight:300, color:"#777", margin:0, lineHeight:1.6 },
+  dirBadge: { fontSize:9, fontWeight:500, letterSpacing:"1.5px", textTransform:"uppercase", color:"#aaa", border:"1px solid #e8e5df", padding:"2px 8px" },
 
   directionCards: { display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:24 },
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
