@@ -10,6 +10,7 @@ const BORDER = "#E8E5DF";
 const DOVE_BLUE = "#6B8CAE";
 const GREEN = "#2C5F3A";
 const DARK = "#111111";
+const PANEL_BG = "#1E2B3A"; // Dark navy — less harsh than pure black
 const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","#F5F0E8","#EEF1F7","#F2EEF5"];
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
 
@@ -51,12 +52,71 @@ Always respond with valid JSON only:
   }
 }`;
 
-// Dove follow-up prompts shown after directions are displayed
 const DOVE_FOLLOWUPS = [
   "Do any of these feel right? Or shall I try a different angle?",
   "I can go more premium, more artisan, or more practical — just say the word.",
-  "Want me to focus on one of these directions, or try something completely different?",
+  "Want me to focus on one direction, or try something completely different?",
 ];
+
+// Live parsing — pure client-side, no API call
+function parseBrief(text) {
+  if (!text || text.trim().length < 6) return null;
+  const t = text.toLowerCase();
+  const chips = [];
+
+  // Audience
+  if (/senior|leadership|cxo|ceo|cfo|director|vp|banker|banker|executive|management/.test(t))
+    chips.push("Senior leadership");
+  else if (/employ|staff|team|workforce|junior/.test(t))
+    chips.push("Employees");
+  else if (/client|customer|partner/.test(t))
+    chips.push("Clients");
+  else if (/colleague|peer/.test(t))
+    chips.push("Colleagues");
+
+  // Occasion
+  if (/diwali/.test(t)) chips.push("Diwali");
+  else if (/new year|new-year/.test(t)) chips.push("New Year");
+  else if (/onboard|joining|welcome|new hire/.test(t)) chips.push("Onboarding");
+  else if (/anniver/.test(t)) chips.push("Anniversary");
+  else if (/event|conference|offsite/.test(t)) chips.push("Corporate event");
+  else if (/birthday/.test(t)) chips.push("Birthday");
+  else if (/thank|appreciation/.test(t)) chips.push("Thank-you");
+
+  // Quantity
+  const qtyMatch = t.match(/(\d+)\s*(people|person|gift|unit|recipient|staff|employee|colleague|banker|head|no)/);
+  if (qtyMatch) chips.push(`${qtyMatch[1]} gifts`);
+
+  // Budget
+  const budgetMatch = t.match(/₹?\s*(\d[\d,]*)\s*k?(?:\s*each|\s*per|\s*\/|\s*unit)?/);
+  if (budgetMatch) {
+    let amount = parseInt(budgetMatch[1].replace(/,/g, ""));
+    if (t.includes(budgetMatch[1] + "k") || t.includes(budgetMatch[1] + " k")) amount *= 1000;
+    if (amount >= 100) chips.push(`₹${amount.toLocaleString("en-IN")} budget`);
+  }
+
+  // Restrictions
+  if (/no food|non.edible|no edible|no consumable|nothing edible/.test(t)) chips.push("No edibles");
+  if (/non.fragile|nothing fragile|no fragile|courier/.test(t)) chips.push("Non-fragile");
+
+  return chips.length > 0 ? chips : null;
+}
+
+// Emotional context line based on parsed brief
+function contextLine(chips) {
+  if (!chips) return null;
+  const isSenior = chips.some(c => c.toLowerCase().includes("senior") || c.toLowerCase().includes("leadership"));
+  const isDiwali = chips.some(c => c.toLowerCase().includes("diwali"));
+  const isOnboard = chips.some(c => c.toLowerCase().includes("onboard"));
+  const isClient = chips.some(c => c.toLowerCase().includes("client"));
+
+  if (isSenior && isDiwali) return "For senior teams where the gift reflects judgment, not just budget.";
+  if (isSenior) return "For people who notice the difference between thoughtful and generic.";
+  if (isDiwali) return "Festive, but never predictable.";
+  if (isOnboard) return "A first impression that sets the tone for everything after.";
+  if (isClient) return "Gifts that strengthen the relationship, quietly.";
+  return "Curated for exactly this brief.";
+}
 
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
@@ -94,6 +154,7 @@ export default function App() {
 
   const [view, setView] = useState("home");
   const [brief, setBrief] = useState("");
+  const [liveChips, setLiveChips] = useState(null); // live parsed chips
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState("Understanding your brief…");
 
@@ -115,7 +176,7 @@ export default function App() {
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
 
-  // Dove chat popup state
+  // Dove popup
   const [dovePopupOpen, setDovePopupOpen] = useState(false);
   const [dovePopupMsg, setDovePopupMsg] = useState("");
   const [dovePopupInput, setDovePopupInput] = useState("");
@@ -130,7 +191,13 @@ export default function App() {
     else setNotFound(true);
   }, []);
 
-  // Show Dove popup after directions load
+  // Live parse brief as user types
+  useEffect(() => {
+    const chips = parseBrief(brief);
+    setLiveChips(chips);
+  }, [brief]);
+
+  // Dove popup on directions
   useEffect(() => {
     if (view === "directions" && directions.length > 0) {
       clearTimeout(dovePopupTimer.current);
@@ -277,7 +344,7 @@ export default function App() {
         };
       });
 
-      setBriefSummary(ranked.summary || "Here are 3 strong directions for this brief.");
+      setBriefSummary(ranked.summary || "");
       setDirections(enrichedDirections);
       saveConvo("assistant", ranked.summary||"");
       setView("directions");
@@ -299,7 +366,6 @@ export default function App() {
     setRefining(false);
   };
 
-  // Dove popup chat — handles response and re-searches if needed
   const handleDovePopupSend = async () => {
     const text = dovePopupInput.trim();
     if (!text || dovePopupLoading) return;
@@ -318,24 +384,18 @@ export default function App() {
       });
       const data = await res.json();
       saveConvo("dove", data.response);
-
       const newPopupHistory = [...dovePopupHistory, { role:"user", content:text }, { role:"assistant", content:data.response }];
       setDovePopupHistory(newPopupHistory);
       setDovePopupMsg(data.response);
 
       if (data.ready && data.filters) {
-        // New filters — re-run directions
         setDovePopupOpen(false);
         const combined = data.filters.query || text;
         setBrief(combined);
         await handleSearch(combined);
-      } else if (!data.ready) {
-        // Dove replied but needs more — show reply, keep popup open
-        setDovePopupLoading(false);
       }
     } catch(e) {
       setDovePopupMsg("Let me try again — tell me what you'd like to change.");
-      setDovePopupLoading(false);
     }
     setDovePopupLoading(false);
   };
@@ -413,13 +473,14 @@ export default function App() {
   const TopBar = () => (
     <div style={S.topBar}>
       <Logo size="sm" onClick={() => setView("home")} />
+      {/* Refine bar — same feel as main input */}
       <div style={S.refineWrap}>
         <input
           style={S.refineInput}
           value={refineText}
           onChange={e => setRefineText(e.target.value)}
           onKeyDown={e => e.key==="Enter" && handleRefine()}
-          placeholder="Refine — e.g. more premium, nothing fragile, under ₹2,000…"
+          placeholder="Refine in one line — e.g. more premium, nothing fragile…"
           disabled={refining || thinking}
         />
         <button style={{ ...S.refineBtn, ...(!refineText.trim()||refining?{opacity:0.4,cursor:"not-allowed"}:{}) }}
@@ -478,7 +539,6 @@ export default function App() {
     </div>
   ) : null;
 
-  // Dove chat popup — appears on directions page
   const DovePopup = () => dovePopupOpen ? (
     <div style={S.dovePopup}>
       <div style={S.dovePopupHdr}>
@@ -496,10 +556,7 @@ export default function App() {
       </div>
       <div style={S.dovePopupSuggs}>
         {["Yes, explore all three","Try more premium","Nothing edible","Try a different angle"].map((s,i)=>(
-          <button key={i} style={S.dovePopupSugg}
-            onClick={() => { setDovePopupInput(s); }}>
-            {s}
-          </button>
+          <button key={i} style={S.dovePopupSugg} onClick={() => setDovePopupInput(s)}>{s}</button>
         ))}
       </div>
       <div style={S.dovePopupInputRow}>
@@ -522,7 +579,6 @@ export default function App() {
       </div>
     </div>
   ) : (
-    // Collapsed pill — click to reopen
     <button style={S.dovePopupPill} onClick={() => setDovePopupOpen(true)}>
       <span style={S.doveDot}></span>
       <span style={{ fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:DOVE_BLUE }}>Ask Dove</span>
@@ -557,6 +613,7 @@ export default function App() {
               </h1>
               <p style={S.heroSub}>One line is enough. Our AI gets the nuance.</p>
 
+              {/* PREMIUM INPUT — soft shadow, no harsh border */}
               <div style={S.inputBox}>
                 <textarea
                   style={S.homeInput}
@@ -567,8 +624,9 @@ export default function App() {
                   rows={2}
                   autoFocus
                 />
+                {/* Send button — muted dove blue, embedded */}
                 <button
-                  style={{ ...S.homeBtn, ...(!brief.trim()||thinking?{opacity:0.4,cursor:"not-allowed"}:{}) }}
+                  style={{ ...S.homeBtn, ...(!brief.trim()||thinking?{opacity:0.35,cursor:"not-allowed"}:{}) }}
                   onClick={() => handleSearch()}
                   disabled={!brief.trim()||thinking}
                 >
@@ -576,10 +634,18 @@ export default function App() {
                 </button>
               </div>
 
-              <div style={S.inputMeta}>
-                <span style={S.metaPill}><span style={{ color:DOVE_BLUE }}>✦</span> Understands budget, scale, occasions, constraints</span>
-                <span style={S.metaDivider}>·</span>
-                <span style={S.metaPill}>Results in seconds</span>
+              {/* LIVE PARSING — shows what AI is understanding */}
+              <div style={S.liveParseRow}>
+                {liveChips && liveChips.length > 0 ? (
+                  <>
+                    <span style={S.liveParseLabel}>✦</span>
+                    {liveChips.map((c,i) => (
+                      <span key={i} style={S.liveParsedChip}>{c}</span>
+                    ))}
+                  </>
+                ) : (
+                  <span style={S.liveParseHint}>Understands budget, scale, occasions, constraints · Results in seconds</span>
+                )}
               </div>
 
               <div style={S.quickStarts}>
@@ -594,6 +660,7 @@ export default function App() {
               </div>
             </div>
 
+            {/* Right panel — dark navy, less harsh */}
             <div style={S.heroRight}>
               <div style={S.heroDarkPanel}>
                 <p style={S.heroPanelEyebrow}>Ikka Dukka</p>
@@ -648,13 +715,17 @@ export default function App() {
           <div style={{ flex:1, overflowY:"auto" }}>
             <div style={S.directionsWrap}>
               <div style={S.directionsHdr}>
-                <div>
-                  <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
-                  <h2 style={S.directionsH2}>
-                    Here are <em style={{ color:DOVE_BLUE }}>{directions.length} strong directions</em> for this brief.
-                  </h2>
-                  {briefSummary && <p style={S.directionsSummary}>{briefSummary}</p>}
-                </div>
+                <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
+                {/* SHARPER HEADLINE */}
+                <h2 style={S.directionsH2}>
+                  Three directions. <em style={{ color:DOVE_BLUE }}>All viable.</em>
+                </h2>
+                {/* EMOTIONAL CONTEXT LINE */}
+                {briefSummary && (
+                  <p style={S.directionsContext}>
+                    {contextLine(liveChips || parseBrief(brief)) || briefSummary}
+                  </p>
+                )}
               </div>
 
               <div style={S.directionCards}>
@@ -685,7 +756,6 @@ export default function App() {
               </div>
             </div>
           </div>
-          {/* Dove popup — always visible on directions page */}
           <DovePopup />
         </div>
       )}
@@ -758,7 +828,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL — square image */}
+      {/* MODAL */}
       {selectedProduct?.id && (() => {
         const p = selectedProduct;
         const price = p._price || 0;
@@ -769,7 +839,6 @@ export default function App() {
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
               <button style={S.modalClose} onClick={()=>setSelectedProduct(null)}>×</button>
               <div style={S.modalInner}>
-                {/* Square image panel */}
                 <div style={S.modalImgWrap}>
                   {p.image_url ? (
                     <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}} />
@@ -829,41 +898,61 @@ const styles = {
   hero: { flex:1, display:"flex", gap:0, overflow:"hidden" },
   heroLeft: { flex:"0 0 52%", padding:"52px 48px 40px", display:"flex", flexDirection:"column", justifyContent:"center" },
   heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:42, fontWeight:700, color:"#111", lineHeight:1.2, margin:"0 0 16px", letterSpacing:-0.5 },
-  heroSub: { fontSize:15, fontWeight:300, color:"#888", margin:"0 0 32px", letterSpacing:"0.3px" },
-  inputBox: { display:"flex", alignItems:"flex-end", border:"1.5px solid #111", background:"#fff", marginBottom:14 },
+  heroSub: { fontSize:15, fontWeight:300, color:"#888", margin:"0 0 28px", letterSpacing:"0.3px" },
+
+  // PREMIUM INPUT — soft shadow, no harsh border
+  inputBox: {
+    display:"flex", alignItems:"flex-end",
+    background:"#fff",
+    border:`1px solid #D8D4CE`,
+    boxShadow:"0 2px 20px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04)",
+    marginBottom:12,
+  },
   homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 10px", fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent" },
-  homeBtn: { width:52, height:52, background:"#111", border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
-  inputMeta: { display:"flex", alignItems:"center", gap:8, marginBottom:32 },
-  metaPill: { fontSize:12, color:"#aaa", fontWeight:300 },
-  metaDivider: { color:"#ddd" },
+  // Embedded send button — dove blue, not black
+  homeBtn: { width:52, height:52, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
+
+  // LIVE PARSING ROW
+  liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:24, marginBottom:28, flexWrap:"wrap" },
+  liveParseLabel: { fontSize:11, color:DOVE_BLUE, fontWeight:600 },
+  liveParsedChip: { fontSize:11, color:DOVE_BLUE, background:"rgba(107,140,174,0.1)", padding:"3px 10px", border:`1px solid rgba(107,140,174,0.25)`, fontWeight:500, letterSpacing:"0.3px" },
+  liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300, letterSpacing:"0.3px" },
+
   quickStarts: { marginTop:"auto" },
   quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 12px" },
   quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"6px 14px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
+
+  // Right panel — dark navy, less harsh than black
   heroRight: { flex:"0 0 48%", position:"relative" },
-  heroDarkPanel: { position:"absolute", inset:0, background:"#1a1a1a", padding:"52px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
-  heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.35)", margin:"0 0 20px" },
+  heroDarkPanel: { position:"absolute", inset:0, background:PANEL_BG, padding:"52px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
+  heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.3)", margin:"0 0 20px" },
   heroPanelHed: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:36, fontWeight:400, color:"#fff", lineHeight:1.25, margin:"0 0 32px" },
   heroPanelPills: { display:"flex", flexDirection:"column", gap:10, marginBottom:48 },
-  heroPanelPill: { fontSize:13, color:"rgba(255,255,255,0.55)", fontWeight:300 },
-  heroPanelStats: { display:"flex", alignItems:"center", gap:28, paddingTop:32, borderTop:"1px solid rgba(255,255,255,0.08)" },
+  heroPanelPill: { fontSize:13, color:"rgba(255,255,255,0.5)", fontWeight:300 },
+  heroPanelStats: { display:"flex", alignItems:"center", gap:28, paddingTop:32, borderTop:"1px solid rgba(255,255,255,0.07)" },
   statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:24, fontWeight:400, color:"#fff", margin:"0 0 3px" },
-  statLabel: { fontSize:11, color:"rgba(255,255,255,0.4)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
+  statLabel: { fontSize:11, color:"rgba(255,255,255,0.35)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
+
   trustBar: { borderTop:`1px solid ${BORDER}`, padding:"18px 48px", display:"flex", alignItems:"center", gap:28, flexWrap:"wrap", background:SURFACE },
   trustLabel: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", flexShrink:0 },
   trustLogo: { fontSize:12, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
 
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
-  refineWrap: { flex:1, display:"flex", border:`1px solid ${BORDER}`, height:36 },
+  // Refine wrap — same premium feel as main input
+  refineWrap: { flex:1, display:"flex", border:`1px solid #D8D4CE`, height:38, boxShadow:"0 1px 6px rgba(0,0,0,0.05)" },
   refineInput: { flex:1, border:"none", outline:"none", padding:"7px 14px", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#111", background:"transparent" },
-  refineBtn: { padding:"0 16px", background:GREEN, border:"none", cursor:"pointer", color:"#fff", fontSize:12, fontWeight:600, letterSpacing:"1px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif", whiteSpace:"nowrap" },
+  refineBtn: { padding:"0 18px", background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:12, fontWeight:600, letterSpacing:"1px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif", whiteSpace:"nowrap" },
   shortlistBtn: { background:GREEN, color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
 
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
   directionsHdr: { marginBottom:36 },
   directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" },
-  directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:32, fontWeight:700, color:DARK, margin:"0 0 8px", lineHeight:1.2 },
-  directionsSummary: { fontFamily:"Georgia,serif", fontSize:15, fontStyle:"italic", fontWeight:300, color:"#888", margin:0 },
+  // SHARPER HEADLINE
+  directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
+  // EMOTIONAL CONTEXT LINE
+  directionsContext: { fontFamily:"Georgia,serif", fontSize:16, fontStyle:"italic", fontWeight:300, color:"#777", margin:0, lineHeight:1.6 },
+
   directionCards: { display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:24 },
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
   dirCardImg: { display:"flex", height:220, overflow:"hidden" },
@@ -904,14 +993,8 @@ const styles = {
   drawerFtr: { padding:18, borderTop:`1px solid ${BORDER}`, flexShrink:0 },
   btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
 
-  // Dove popup
   doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0 },
-  dovePopup: {
-    position:"fixed", bottom:28, right:32, width:320,
-    background:"#fff", border:`1.5px solid ${DOVE_BLUE}`,
-    boxShadow:"0 8px 32px rgba(0,0,0,0.12)",
-    zIndex:200, display:"flex", flexDirection:"column",
-  },
+  dovePopup: { position:"fixed", bottom:28, right:32, width:320, background:"#fff", border:`1.5px solid ${DOVE_BLUE}`, boxShadow:"0 8px 32px rgba(0,0,0,0.12)", zIndex:200, display:"flex", flexDirection:"column" },
   dovePopupHdr: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 16px 10px", borderBottom:`1px solid ${BORDER}` },
   dovePopupMsg: { padding:"16px 16px 10px" },
   dovePopupSuggs: { display:"flex", flexWrap:"wrap", gap:6, padding:"0 16px 12px" },
@@ -921,12 +1004,10 @@ const styles = {
   dovePopupSendBtn: { width:44, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:17, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
   dovePopupPill: { position:"fixed", bottom:28, right:32, display:"flex", alignItems:"center", gap:8, background:"#fff", border:`1.5px solid ${DOVE_BLUE}`, padding:"10px 18px", cursor:"pointer", boxShadow:"0 4px 16px rgba(107,140,174,0.2)", zIndex:200, fontFamily:"'Josefin Sans',sans-serif" },
 
-  // Modal — square image
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:820, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
   modalInner: { display:"flex", flex:1, overflow:"hidden" },
-  // Square: explicit width and height equal, objectFit:contain so nothing is cropped
   modalImgWrap: { width:380, height:380, minWidth:380, flexShrink:0, background:SURFACE, overflow:"hidden" },
   modalContent: { flex:1, padding:"32px 28px", overflowY:"auto" },
 };
