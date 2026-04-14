@@ -138,6 +138,39 @@ function contextLine(chips) {
   return "Curated for exactly this brief.";
 }
 
+// Brief-aware one-line product positioning — client-side, no API call
+function briefPositioningLine(product, filters, chips) {
+  const tags = (product._tags || []);
+  const qty = filters?.qty || (chips?.find(c=>c.type==="qty") ? parseInt(chips.find(c=>c.type==="qty").label) : 0);
+  const budget = filters?.budget || null;
+  const price = product._price || 0;
+  const isNonEdible = !product.edible && !tags.some(t => /edible|consumable|food|snack|beverage/.test(t));
+  const isBulk = tags.some(t => /bulk-friendly|low-moq/.test(t)) || (product.moq && parseInt(product.moq) <= 50);
+  const isKeepsake = tags.some(t => /keepsake|collectible|heirloom/.test(t));
+  const isArtisan = tags.some(t => /handcraft|artisan|hand-finish/.test(t));
+  const isDesk = tags.some(t => /desk-use|desk-accessory/.test(t));
+  const isWellness = tags.some(t => /wellness/.test(t));
+  const isDisplay = tags.some(t => /display-only|home-decor|home-use/.test(t));
+  const hasConstraint = chips?.some(c => c.type === "constraint");
+  const isLarge = qty >= 30;
+
+  const parts = [];
+
+  if (hasConstraint && isNonEdible) parts.push("Non-consumable");
+  if (isLarge && isBulk) parts.push("easy to distribute at scale");
+  else if (isLarge) parts.push("suited for large orders");
+  if (isKeepsake) parts.push("strong recall value");
+  else if (isArtisan) parts.push("artisan provenance");
+  if (isDesk) parts.push("desk-appropriate");
+  if (isDisplay) parts.push("display piece");
+  if (isWellness) parts.push("wellness-oriented");
+  if (budget && price <= budget * 0.85) parts.push("well within budget");
+
+  if (parts.length === 0) return null;
+  // Cap at 2 signals for readability
+  return parts.slice(0,2).join(" · ") + ".";
+}
+
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
   try {
@@ -855,33 +888,69 @@ export default function App() {
                   {sortedGrid.length} gifts in this direction
                 </p>
 
-                <div style={S.grid}>
-                  {sortedGrid.map(p=>(
-                    <div key={p.id} style={S.card}>
-                      <div style={{ ...S.cardImg, background:p._bg||SURFACE }}
-                        onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
-                        {p.image_url ? (
-                          <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />
-                        ) : (
-                          <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                            <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category}</span>
+                {/* TOP 2 — elevated, "Best fit for your brief" */}
+                {sort === "rec" && sortedGrid.length >= 2 && (
+                  <div style={S.topPicksRow}>
+                    <p style={S.topPicksLabel}>Best fit for your brief</p>
+                    <div style={S.topPicksGrid}>
+                      {sortedGrid.slice(0,2).map((p,i) => {
+                        const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief));
+                        return (
+                          <div key={p.id} style={S.topCard}
+                            onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
+                            <div style={{ ...S.topCardImg, background:p._bg||SURFACE }}>
+                              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                              <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
+                                onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
+                                {hearted.has(p.id)?"♥":"♡"}
+                              </button>
+                            </div>
+                            <div style={S.topCardBody}>
+                              <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv), marginBottom:6 }}>
+                                {TIER_LABEL[p.tier]||p.tier}
+                              </span>
+                              <p style={S.topCardName}>{p.name||""}</p>
+                              {posLine && <p style={S.topCardPos}>{posLine}</p>}
+                              <p style={S.topCardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
+                            </div>
                           </div>
-                        )}
-                        <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
-                          onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
-                          {hearted.has(p.id)?"♥":"♡"}
-                        </button>
-                      </div>
-                      <div style={S.cardBody} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
-                        <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
-                          {TIER_LABEL[p.tier]||p.tier}
-                        </span>
-                        <p style={S.cardName}>{p.name||""}</p>
-                        <p style={S.cardCat}>{p.category||""}</p>
-                        <p style={S.cardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
-                      </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* REMAINING GRID — equal weight, no labels */}
+                <div style={S.grid}>
+                  {(sort === "rec" ? sortedGrid.slice(2) : sortedGrid).map(p => {
+                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief));
+                    return (
+                      <div key={p.id} style={S.card}>
+                        <div style={{ ...S.cardImg, background:p._bg||SURFACE }}
+                          onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
+                          {p.image_url ? (
+                            <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />
+                          ) : (
+                            <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                              <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category}</span>
+                            </div>
+                          )}
+                          <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
+                            onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
+                            {hearted.has(p.id)?"♥":"♡"}
+                          </button>
+                        </div>
+                        <div style={S.cardBody} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
+                          <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
+                            {TIER_LABEL[p.tier]||p.tier}
+                          </span>
+                          <p style={S.cardName}>{p.name||""}</p>
+                          {posLine && <p style={S.cardPos}>{posLine}</p>}
+                          <p style={S.cardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1166,6 +1235,20 @@ const styles = {
   sortBtn: { fontSize:11, color:"#bbb", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
   sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}` },
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(190px, 1fr))", gap:"24px 14px" },
+
+  // Top 2 elevated picks — dove blue border, larger image
+  topPicksRow: { marginBottom:28 },
+  topPicksLabel: { fontSize:10, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", color:DOVE_BLUE, margin:"0 0 12px" },
+  topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 },
+  topCard: { border:`1.5px solid ${DOVE_BLUE}`, background:"#fff", cursor:"pointer", overflow:"hidden" },
+  topCardImg: { width:"100%", paddingBottom:"75%", position:"relative", overflow:"hidden" },
+  topCardBody: { padding:"12px 14px 14px" },
+  topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:17, fontWeight:400, color:DARK, margin:"4px 0 4px", lineHeight:1.3 },
+  topCardPos: { fontFamily:"Georgia,serif", fontSize:12, fontWeight:300, fontStyle:"italic", color:"#777", margin:"0 0 8px", lineHeight:1.5 },
+  topCardPrice: { fontSize:15, fontWeight:600, color:DARK, margin:0 },
+
+  // Brief-aware positioning line on standard cards
+  cardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 4px", lineHeight:1.4 },
   card: { cursor:"pointer" },
   cardImg: { width:"100%", paddingBottom:"116%", position:"relative", overflow:"hidden" },
   heartBtn: { position:"absolute", top:8, right:8, width:28, height:28, background:"rgba(255,255,255,0.9)", border:"none", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" },
