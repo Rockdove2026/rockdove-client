@@ -471,10 +471,9 @@ export default function App() {
     </div>
   );
 
-  const TopBar = () => (
+  const topBarJSX = (
     <div style={S.topBar}>
       <Logo size="sm" onClick={() => setView("home")} />
-      {/* Refine bar — same feel as main input */}
       <div style={S.refineWrap}>
         <input
           style={S.refineInput}
@@ -500,7 +499,7 @@ export default function App() {
     </div>
   );
 
-  const ShortlistDrawer = () => shortlistOpen ? (
+  const shortlistDrawerJSX = shortlistOpen ? (
     <div style={S.drawer}>
       <div style={S.drawerHdr}>
         <p style={S.drawerTitle}>Shortlist</p>
@@ -709,7 +708,7 @@ export default function App() {
       {/* DIRECTIONS */}
       {view === "directions" && (
         <div style={{ ...S.resultsPage, background:BG }}>
-          <TopBar />
+          { topBarJSX }
           <div style={{ flex:1, overflowY:"auto" }}>
             <div style={S.directionsWrap}>
               <div style={S.directionsHdr}>
@@ -834,7 +833,7 @@ export default function App() {
       {/* GRID */}
       {view === "grid" && (
         <div style={{ ...S.resultsPage, background:BG }}>
-          <TopBar />
+          { topBarJSX }
           <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
             <div style={{ flex:1, overflowY:"auto" }}>
               <div style={S.gridWrap}>
@@ -899,7 +898,7 @@ export default function App() {
                           <div key={p.id} style={S.topCard}
                             onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                             <div style={{ ...S.topCardImg, background:p._bg||SURFACE }}>
-                              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
                               <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
                                 onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
                                 {hearted.has(p.id)?"♥":"♡"}
@@ -954,7 +953,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <ShortlistDrawer />
+            { shortlistDrawerJSX }
           </div>
         </div>
       )}
