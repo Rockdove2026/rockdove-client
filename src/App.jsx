@@ -80,21 +80,30 @@ function parseBrief(text) {
   else if (/birthday/.test(t)) chips.push({ label:"Birthday", type:"occasion" });
   else if (/thank|appreciation/.test(t)) chips.push({ label:"Thank-you", type:"occasion" });
 
-  // Quantity — must be followed by a people/group word to avoid catching budget numbers
-  const qtyMatch = t.match(/\b(\d{1,4})\s*(people|person|gifts?|units?|recipients?|staff|employees?|colleagues?|bankers?|heads?|guests?)\b/);
-  if (qtyMatch) chips.push({ label:`${qtyMatch[1]} ${parseInt(qtyMatch[1])===1?"guest":"guests"}`, type:"qty" });
+  // Quantity — must be followed by a people/group word
+  const qtyMatch = t.match(/\b(\d{1,4})\s*(people|persons?|gifts?|units?|recipients?|staff|employees?|colleagues?|bankers?|heads?|guests?)\b/);
+  if (qtyMatch) chips.push({ label:`${qtyMatch[1]} guests`, type:"qty" });
 
-  // Budget — requires ₹/rs/inr symbol OR budget keyword to avoid catching quantity numbers
-  const budgetMatch = t.match(/(?:(?:₹|rs\.?|inr)\s*(\d[\d,]*)\s*k?)|(?:\b(\d[\d,]*)\s*k?\s*(?:each|per\s+(?:gift|head|person|unit)|budget|\/head|\/gift))/i);
-  if (budgetMatch) {
-    const raw = (budgetMatch[1] || budgetMatch[2] || "").replace(/,/g, "");
-    let amount = parseInt(raw);
-    // Check if followed by 'k'
-    const fullMatch = budgetMatch[0];
-    if (/\d+k/i.test(fullMatch)) amount *= 1000;
-    if (amount >= 200 && amount <= 500000)
-      chips.push({ label:`₹${amount.toLocaleString("en-IN")}`, type:"budget" });
+  // Budget — explicit patterns only, in priority order
+  let budgetAmount = null;
+  const budgetPatterns = [
+    // ₹5,000 or ₹5k or rs 3000
+    /(?:₹|rs\.?\s*)\s*(\d[\d,]*)\s*(k)?\b/i,
+    // under/around/within/upto 3k or 3,000 or 3000
+    /\b(?:under|around|approx|max|upto|up\s+to|within|about)\s+₹?\s*(\d[\d,]*)\s*(k)?\b/i,
+    // 3k/3000 each/per gift/per head/budget/per unit
+    /\b(\d{1,6})\s*(k)?\s*(?:each|per\s+(?:gift|head|person|unit)|budget|\/head|\/gift)\b/i,
+  ];
+  for (const pattern of budgetPatterns) {
+    const m = t.match(pattern);
+    if (m) {
+      const raw = (m[1] || "").replace(/,/g, "");
+      let amount = parseInt(raw);
+      if ((m[2] || "").toLowerCase() === "k") amount *= 1000;
+      if (amount >= 200 && amount <= 500000) { budgetAmount = amount; break; }
+    }
   }
+  if (budgetAmount) chips.push({ label:`₹${budgetAmount.toLocaleString("en-IN")}`, type:"budget" });
 
   // Constraints — emphasised
   if (/no food|non.edible|no edible|no consumable|nothing edible/.test(t))
