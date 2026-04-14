@@ -482,14 +482,14 @@ export default function App() {
     </div>
   ) : null;
 
-  // Inline refinement chips — AI speaks through layout, not chat
+  // Inline refinement chips — taste filters, not UI toggles
   const REFINE_CHIPS = [
-    { label:"More premium", query:" more premium, ultra-luxury only" },
-    { label:"No edibles", query:" nothing edible or consumable" },
-    { label:"Non-fragile", query:" nothing fragile, courier-safe" },
-    { label:"More artisan", query:" handcrafted, artisan-made, Indian craft" },
-    { label:"More practical", query:" desk-friendly, practical, everyday use" },
-    { label:"Different angle", query:" completely different style and category" },
+    { label:"Elevate", query:" more premium, ultra-luxury only", note:"Shifted toward elevated, artisanal selections." },
+    { label:"No food", query:" nothing edible or consumable", note:"Shifted toward non-edible options only." },
+    { label:"More functional", query:" desk-friendly, practical, everyday use", note:"Shifted toward purposeful, functional gifting." },
+    { label:"More distinctive", query:" unique, rare, unexpected category", note:"Shifted toward more distinctive, memorable pieces." },
+    { label:"More artisan", query:" handcrafted, artisan-made, Indian craft", note:"Shifted toward handcrafted, artisan-led selections." },
+    { label:"Different angle", query:" completely different style and category", note:"Taking a different angle entirely." },
   ];
 
   return (
@@ -630,8 +630,13 @@ export default function App() {
                   Three directions. <em style={{ color:DOVE_BLUE }}>All viable.</em>
                 </h2>
                 {briefSummary && (
+                  <p style={S.directionsIntel}>
+                    <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
+                  </p>
+                )}
+                {brief && (
                   <p style={S.directionsContext}>
-                    {contextLine(liveChips || parseBrief(brief)) || briefSummary}
+                    {contextLine(liveChips || parseBrief(brief))}
                   </p>
                 )}
                 {/* Inline refinement — ambient, not intrusive */}
@@ -642,7 +647,7 @@ export default function App() {
                       onClick={() => {
                         const refined = brief + c.query;
                         setBrief(refined);
-                        setRefinedNote("Adjusted toward " + c.label.toLowerCase() + " selections.");
+                        setRefinedNote(c.note);
                         handleSearch(refined);
                       }}>
                       {c.label}
@@ -658,30 +663,47 @@ export default function App() {
               </div>
 
               <div style={S.directionCards}>
-                {directions.map((d,i) => (
-                  <div key={i} style={S.dirCard}>
-                    <div style={S.dirCardImg}>
-                      {d.products?.slice(0,2).map((p,j) => (
-                        <div key={j} style={{ ...S.dirCardThumb, background:p._bg||SURFACE }}>
-                          {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
-                        </div>
-                      ))}
+                {directions.map((d,i) => {
+                  // Derive micro-tags from product categories in this direction
+                  const cats = [...new Set((d.products||[]).map(p => p.category).filter(Boolean))].slice(0,3);
+                  const hasCraft = (d.products||[]).some(p => (p._tags||[]).some(t => t.includes("handcraft") || t.includes("artisan")));
+                  const hasIndia = (d.products||[]).some(p => (p._tags||[]).some(t => t.includes("made-in-india") || t.includes("indian")));
+                  const isNonEdible = !(d.products||[]).some(p => p.edible);
+                  const microTags = [
+                    ...cats.slice(0,2),
+                    hasCraft ? "Handmade" : null,
+                    hasIndia ? "India" : null,
+                    isNonEdible ? "Non-edible" : null,
+                  ].filter(Boolean).slice(0,4);
+
+                  return (
+                    <div key={i} style={S.dirCard}>
+                      <div style={S.dirCardImg}>
+                        {(d.products||[]).slice(0,2).map((p,j) => (
+                          <div key={j} style={{ ...S.dirCardThumb, background:p._bg||SURFACE }}>
+                            {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                          </div>
+                        ))}
+                      </div>
+                      <div style={S.dirCardBody}>
+                        <p style={S.dirCardNum}>Direction {d.number}</p>
+                        <p style={S.dirCardName}>{d.name}</p>
+                        <p style={S.dirCardTagline}>{d.tagline}</p>
+                        <p style={S.dirCardDesc}>{d.description}</p>
+                        {microTags.length > 0 && (
+                          <p style={S.dirCardMicroTags}>{microTags.join(" · ")}</p>
+                        )}
+                        <p style={S.dirCardPrice}>
+                          ₹{(d.price_min||0).toLocaleString("en-IN")} – ₹{(d.price_max||0).toLocaleString("en-IN")}
+                        </p>
+                        <p style={S.dirCardCount}>{(d.products||[]).length} gifts in this edit</p>
+                      </div>
+                      <button style={S.exploreBtn} onClick={() => exploreDirection(d)}>
+                        Explore this direction →
+                      </button>
                     </div>
-                    <div style={S.dirCardBody}>
-                      <p style={S.dirCardNum}>DIRECTION {d.number}</p>
-                      <p style={S.dirCardName}>{d.name}</p>
-                      <p style={S.dirCardTagline}>{d.tagline}</p>
-                      <p style={S.dirCardDesc}>{d.description}</p>
-                      <p style={S.dirCardPrice}>
-                        ₹{(d.price_min||0).toLocaleString("en-IN")} – ₹{(d.price_max||0).toLocaleString("en-IN")}
-                      </p>
-                      <p style={S.dirCardCount}>{d.products?.length||0} gifts in this edit</p>
-                    </div>
-                    <button style={S.exploreBtn} onClick={() => exploreDirection(d)}>
-                      Explore →
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -877,6 +899,8 @@ const styles = {
   directionsHdr: { marginBottom:36 },
   directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" },
   briefEcho: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 16px", letterSpacing:"0.2px" },
+  directionsIntel: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", margin:"8px 0 6px", lineHeight:1.6 },
+  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#999", margin:"0 0 0", lineHeight:1.5 },
   // SHARPER HEADLINE
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
   // EMOTIONAL CONTEXT LINE
@@ -889,6 +913,13 @@ const styles = {
   dirCardBody: { padding:"24px 24px 16px", flex:1 },
   dirCardNum: { fontSize:9, fontWeight:400, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 6px" },
   dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 6px", lineHeight:1.2 },
+  dirCardTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#555", margin:"0 0 8px", lineHeight:1.6 },
+  dirCardDesc: { fontSize:13, fontWeight:300, color:"#888", margin:"0 0 10px", lineHeight:1.55 },
+  dirCardMicroTags: { fontSize:11, color:DOVE_BLUE, letterSpacing:"0.5px", margin:"0 0 12px", fontWeight:400 },
+  dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:18, fontWeight:400, color:DARK, margin:"0 0 4px" },
+  dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", margin:0 },
+  // Blue explore button — not black
+  exploreBtn: { margin:"0 24px 24px", padding:"12px 0", background:DOVE_BLUE, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", boxShadow:`0 4px 0 rgba(107,140,174,0.3)` },
 
   // Inline refinement chips
   refineChipsRow: { display:"flex", alignItems:"center", gap:8, marginTop:20, flexWrap:"wrap" },
