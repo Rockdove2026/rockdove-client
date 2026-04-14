@@ -14,9 +14,9 @@ const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
 
 const QUICK_STARTS = [
-  { label:"Diwali gifts for clients", icon:"🎁" },
-  { label:"Joining kits for new hires", icon:"👋" },
-  { label:"Premium event gifting", icon:"✦" },
+  { label:"Diwali gifts for clients" },
+  { label:"Joining kits for new hires" },
+  { label:"Premium event gifting" },
 ];
 
 const TRUST_LOGOS = ["Axis Bank","Bain & Company","Google","Microsoft","J.P.Morgan"];
@@ -85,35 +85,26 @@ export default function App() {
   const [notFound, setNotFound] = useState(false);
   const productsRef = useRef([]);
 
-  // Views: home | thinking | directions | grid | submitted
   const [view, setView] = useState("home");
-
-  // Input
   const [brief, setBrief] = useState("");
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState("Understanding your brief…");
 
-  // Directions
   const [directions, setDirections] = useState([]);
   const [briefSummary, setBriefSummary] = useState("");
   const [lastFilters, setLastFilters] = useState(null);
   const [intakeHistory, setIntakeHistory] = useState([]);
 
-  // Grid (when exploring a direction)
   const [activeDirection, setActiveDirection] = useState(null);
   const [gridProducts, setGridProducts] = useState([]);
   const [sort, setSort] = useState("rec");
 
-  // Shortlist
   const [hearted, setHearted] = useState(new Set());
   const heartedRef = useRef({});
   const [shortlistOpen, setShortlistOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Modal
   const [selectedProduct, setSelectedProduct] = useState(null);
-
-  // Refine bar
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
 
@@ -190,7 +181,6 @@ export default function App() {
     const allProducts = productsRef.current;
 
     try {
-      // Step 1: Dove interprets
       setThinkingLabel("Understanding your brief…");
       const doveRes = await fetch(CATALOGUE_URL + "/dove-chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -211,7 +201,6 @@ export default function App() {
       const qty = filters.qty || 1;
       const budget = filters.budget || null;
 
-      // Step 2: Pre-filter candidates
       setThinkingLabel("Scanning 160+ curated gifts…");
       const candidates = allProducts.filter(p => {
         const price = priceAtQty(p.pricing_tiers, qty);
@@ -228,7 +217,6 @@ export default function App() {
         tags: (p._tags||[]).join(", "),
       }));
 
-      // Step 3: Rank
       setThinkingLabel("Curating your shortlist…");
       const rankRes = await fetch(CATALOGUE_URL + "/dove-rank", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -237,7 +225,6 @@ export default function App() {
       const ranked = await rankRes.json();
       const idOrder = ranked.ranked_ids || [];
 
-      // Step 4: Generate 3 directions
       setThinkingLabel("Creating editorial directions…");
       const topCandidates = idOrder.slice(0, 30).map(id => candidates.find(c=>c.id===id)).filter(Boolean);
 
@@ -247,15 +234,20 @@ export default function App() {
       });
       const dirData = await dirRes.json();
 
-      // Build product map
       const productMap = {};
       allProducts.forEach(p => { productMap[p.id] = { ...p, _price: priceAtQty(p.pricing_tiers, qty) }; });
 
-      // Attach full product objects to each direction
-      const enrichedDirections = (dirData.directions||[]).map(d => ({
-        ...d,
-        products: (d.product_ids||[]).map(id => productMap[id]).filter(Boolean),
-      }));
+      // FIX: Calculate price range from actual product prices, not Claude's estimates
+      const enrichedDirections = (dirData.directions||[]).map(d => {
+        const prods = (d.product_ids||[]).map(id => productMap[id]).filter(Boolean);
+        const prices = prods.map(p => p._price||0).filter(v => v > 0);
+        return {
+          ...d,
+          products: prods,
+          price_min: prices.length ? Math.min(...prices) : (d.price_min||0),
+          price_max: prices.length ? Math.max(...prices) : (d.price_max||0),
+        };
+      });
 
       setBriefSummary(ranked.summary || "Here are 3 strong directions for this brief.");
       setDirections(enrichedDirections);
@@ -348,22 +340,22 @@ export default function App() {
     </div>
   );
 
-  // Shared top bar for results views
-  const TopBar = ({ showBack, backLabel, onBack }) => (
+  const TopBar = () => (
     <div style={S.topBar}>
-      <Logo size="sm" onClick={onBack || (() => setView("home"))} />
+      <Logo size="sm" onClick={() => setView("home")} />
       <div style={S.refineWrap}>
         <input
           style={S.refineInput}
           value={refineText}
           onChange={e => setRefineText(e.target.value)}
           onKeyDown={e => e.key==="Enter" && handleRefine()}
-          placeholder="Refine in one line — e.g. more premium, nothing fragile…"
+          placeholder="Refine — e.g. more premium, nothing fragile, under ₹2,000…"
           disabled={refining || thinking}
         />
-        <button style={{ ...S.refineBtn, ...((!refineText.trim()||refining)?{opacity:0.4,cursor:"not-allowed"}:{}) }}
+        {/* FIX: Text button instead of icon */}
+        <button style={{ ...S.refineBtn, ...(!refineText.trim()||refining?{opacity:0.4,cursor:"not-allowed"}:{}) }}
           onClick={handleRefine} disabled={!refineText.trim()||refining}>
-          {refining?"…":"✎"}
+          {refining ? "…" : "Refine →"}
         </button>
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
@@ -377,7 +369,6 @@ export default function App() {
     </div>
   );
 
-  // Shortlist drawer
   const ShortlistDrawer = () => shortlistOpen ? (
     <div style={S.drawer}>
       <div style={S.drawerHdr}>
@@ -403,7 +394,7 @@ export default function App() {
         ))}
       </div>
       <div style={S.drawerFtr}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:14, paddingBottom:14, borderBottom:`1px solid #f0ece4` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:14, paddingBottom:14, borderBottom:"1px solid #f0ece4" }}>
           <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa" }}>Total</span>
           <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:DARK }}>
             {hearted.size===0?"—":`₹${totalEstimate.toLocaleString("en-IN")}`}
@@ -424,7 +415,6 @@ export default function App() {
       {/* ── HOME ── */}
       {view === "home" && (
         <div style={S.homePage}>
-          {/* Nav */}
           <div style={S.homeNav}>
             <div style={{ fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:DOVE_BLUE, fontWeight:600 }}>✦ AI-FIRST</div>
             <Logo size="md" />
@@ -438,9 +428,7 @@ export default function App() {
           </div>
           <p style={S.homeTagline}>Gift Intelligence by Ikka Dukka</p>
 
-          {/* Hero */}
           <div style={S.hero}>
-            {/* Left */}
             <div style={S.heroLeft}>
               <h1 style={S.heroH1}>
                 Tell me what you need.<br/>
@@ -474,11 +462,12 @@ export default function App() {
                 <span style={S.metaPill}>Results in seconds</span>
               </div>
 
+              {/* FIX: no flexWrap, nowrap on chips */}
               <div style={S.quickStarts}>
                 <p style={S.quickStartLabel}>NEED INSPIRATION? TRY THESE</p>
-                <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+                <div style={{ display:"flex", gap:10 }}>
                   {QUICK_STARTS.map((q,i)=>(
-                    <button key={i} style={S.quickChip} onClick={() => { setBrief(q.label); handleSearch(q.label); }}>
+                    <button key={i} style={S.quickChip} onClick={() => handleSearch(q.label)}>
                       {q.label} →
                     </button>
                   ))}
@@ -486,7 +475,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right — dark editorial panel */}
             <div style={S.heroRight}>
               <div style={S.heroDarkPanel}>
                 <p style={S.heroPanelEyebrow}>Ikka Dukka</p>
@@ -507,7 +495,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Trust bar */}
           <div style={S.trustBar}>
             <span style={S.trustLabel}>Trusted by teams at leading organisations</span>
             {TRUST_LOGOS.map((l,i)=>(
@@ -590,7 +577,6 @@ export default function App() {
           <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
             <div style={{ flex:1, overflowY:"auto" }}>
               <div style={S.gridWrap}>
-                {/* Breadcrumb */}
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
                   <button style={S.backLink} onClick={() => setView("directions")}>← All directions</button>
                   <span style={{ color:"#ddd" }}>·</span>
@@ -652,7 +638,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL */}
+      {/* ── MODAL ── */}
       {selectedProduct?.id && (() => {
         const p = selectedProduct;
         const price = p._price || 0;
@@ -716,7 +702,6 @@ const styles = {
   muted: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#aaa", marginTop:24 },
   av: { width:36, height:36, borderRadius:"50%", background:"#7A90B0", fontSize:12, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
 
-  // Home
   homePage: { minHeight:"100vh", display:"flex", flexDirection:"column" },
   homeNav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"20px 48px", borderBottom:`1px solid ${BORDER}` },
   homeTagline: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", textAlign:"center", margin:"12px 0 0", fontWeight:300 },
@@ -726,7 +711,7 @@ const styles = {
   heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:42, fontWeight:700, color:"#111", lineHeight:1.2, margin:"0 0 16px", letterSpacing:-0.5 },
   heroSub: { fontSize:15, fontWeight:300, color:"#888", margin:"0 0 32px", letterSpacing:"0.3px" },
 
-  inputBox: { display:"flex", alignItems:"flex-end", border:`1.5px solid #111`, background:"#fff", marginBottom:14 },
+  inputBox: { display:"flex", alignItems:"flex-end", border:"1.5px solid #111", background:"#fff", marginBottom:14 },
   homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 10px", fontFamily:"Georgia,serif", fontSize:17, fontWeight:300, color:"#111", lineHeight:1.7, background:"transparent" },
   homeBtn: { width:52, height:52, background:"#111", border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
 
@@ -736,7 +721,8 @@ const styles = {
 
   quickStarts: { marginTop:"auto" },
   quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 12px" },
-  quickChip: { fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, fontStyle:"italic", color:"#888", background:"none", border:`1px solid ${BORDER}`, padding:"7px 16px", cursor:"pointer", lineHeight:1.4 },
+  // FIX: nowrap so chips stay on one line
+  quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"6px 14px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
 
   heroRight: { flex:"0 0 48%", position:"relative" },
   heroDarkPanel: { position:"absolute", inset:0, background:"#1a1a1a", padding:"52px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
@@ -752,14 +738,13 @@ const styles = {
   trustLabel: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", flexShrink:0 },
   trustLogo: { fontSize:12, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
 
-  // Top bar (results)
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
   refineWrap: { flex:1, display:"flex", border:`1px solid ${BORDER}`, height:36 },
   refineInput: { flex:1, border:"none", outline:"none", padding:"7px 14px", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#111", background:"transparent" },
-  refineBtn: { width:42, background:GREEN, border:"none", cursor:"pointer", color:"#fff", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
+  // FIX: text button, wider
+  refineBtn: { padding:"0 16px", background:GREEN, border:"none", cursor:"pointer", color:"#fff", fontSize:12, fontWeight:600, letterSpacing:"1px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif", whiteSpace:"nowrap" },
   shortlistBtn: { background:GREEN, color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
 
-  // Directions
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
   directionsHdr: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:36 },
@@ -771,7 +756,7 @@ const styles = {
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
   dirCardImg: { display:"flex", height:220, overflow:"hidden" },
   dirCardThumb: { flex:1, overflow:"hidden" },
-  dirCardBody: { padding:"24px 24px 16px" },
+  dirCardBody: { padding:"24px 24px 16px", flex:1 },
   dirCardNum: { fontSize:9, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:DOVE_BLUE, margin:"0 0 8px" },
   dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 6px", lineHeight:1.2 },
   dirCardTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#666", margin:"0 0 10px", lineHeight:1.6 },
@@ -780,7 +765,6 @@ const styles = {
   dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", margin:0 },
   exploreBtn: { margin:"0 24px 24px", padding:"12px 0", background:DARK, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase" },
 
-  // Grid
   gridWrap: { padding:"24px 28px" },
   backLink: { fontSize:12, color:"#aaa", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", letterSpacing:"0.5px", padding:0 },
   dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, paddingBottom:20, borderBottom:`1px solid ${BORDER}` },
@@ -801,15 +785,13 @@ const styles = {
   cardCat: { fontSize:10, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", margin:"0 0 7px" },
   cardPrice: { fontSize:14, fontWeight:600, color:DARK, margin:0 },
 
-  // Drawer
   drawer: { width:272, background:"#fff", borderLeft:`1px solid ${BORDER}`, display:"flex", flexDirection:"column", flexShrink:0 },
   drawerHdr: { padding:"16px 20px 14px", borderBottom:`1px solid ${BORDER}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
   drawerTitle: { fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DARK, margin:0 },
-  slRow: { display:"flex", alignItems:"center", gap:10, padding:"11px 18px", borderBottom:`1px solid #F5F0E8` },
+  slRow: { display:"flex", alignItems:"center", gap:10, padding:"11px 18px", borderBottom:"1px solid #F5F0E8" },
   drawerFtr: { padding:18, borderTop:`1px solid ${BORDER}`, flexShrink:0 },
   btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
 
-  // Modal
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:820, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
