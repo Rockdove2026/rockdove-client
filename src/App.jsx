@@ -805,22 +805,46 @@ export default function App() {
           <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
             <div style={{ flex:1, overflowY:"auto" }}>
               <div style={S.gridWrap}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
-                  <button style={S.backLink} onClick={() => setView("directions")}>← All directions</button>
-                  <span style={{ color:"#ddd" }}>·</span>
-                  {activeDirection && (
-                    <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:15, fontWeight:400, color:DARK }}>{activeDirection.name}</span>
-                  )}
+                {/* Back link — slightly clearer */}
+                <div style={{ marginBottom:24 }}>
+                  <button style={S.backLink} onClick={() => setView("directions")}>← Back to recommendations</button>
                 </div>
 
                 {activeDirection && (
                   <div style={S.dirBanner}>
-                    <div>
+                    <div style={{ flex:1 }}>
                       <p style={S.dirBannerName}>{activeDirection.name}</p>
                       <p style={S.dirBannerTagline}>{activeDirection.tagline}</p>
+
+                      {/* "Selected for" — keeps the AI thread alive */}
+                      {(() => {
+                        const chips = parseBrief(brief);
+                        if (!chips?.length) return null;
+                        return (
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:10, flexWrap:"wrap" }}>
+                            <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb" }}>Selected for:</span>
+                            {chips.map((c,i) => (
+                              <span key={i} style={{
+                                fontSize:11, color:"#666", background:SURFACE,
+                                border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
+                                ...(c.type==="budget" ? { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 } : {}),
+                                ...(c.type==="constraint" ? { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` } : {}),
+                              }}>{c.label}</span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Why this direction */}
+                      {activeDirection.description && (
+                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"10px 0 0", lineHeight:1.6 }}>
+                          {activeDirection.description}
+                        </p>
+                      )}
                     </div>
-                    <div style={{ display:"flex", gap:4 }}>
-                      {[["rec","Recommended"],["asc","Price ↑"],["desc","Price ↓"]].map(([v,l])=>(
+
+                    <div style={{ display:"flex", gap:4, flexShrink:0, alignSelf:"flex-start" }}>
+                      {[["rec","Best fit"],["asc","Price ↑"],["desc","Price ↓"]].map(([v,l])=>(
                         <button key={v} style={{ ...S.sortBtn, ...(sort===v?S.sortOn:{}) }} onClick={()=>setSort(v)}>{l}</button>
                       ))}
                     </div>
@@ -1039,7 +1063,7 @@ const styles = {
 
   gridWrap: { padding:"24px 28px" },
   backLink: { fontSize:12, color:"#aaa", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", letterSpacing:"0.5px", padding:0 },
-  dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, paddingBottom:20, borderBottom:`1px solid ${BORDER}` },
+  dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24, paddingBottom:24, borderBottom:`1px solid ${BORDER}` },
   dirBannerName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 4px" },
   dirBannerTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888", margin:0 },
   sortBtn: { fontSize:11, color:"#bbb", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
