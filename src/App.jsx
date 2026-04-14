@@ -54,48 +54,59 @@ Always respond with valid JSON only:
 
 
 // Live parsing — pure client-side, no API call
+// Returns array of {label, type} where type = "audience"|"occasion"|"qty"|"budget"|"constraint"
 function parseBrief(text) {
   if (!text || text.trim().length < 6) return null;
   const t = text.toLowerCase();
   const chips = [];
 
   // Audience
-  if (/senior|leadership|cxo|ceo|cfo|director|vp|banker|banker|executive|management/.test(t))
-    chips.push("Senior leadership");
+  if (/senior|leadership|cxo|ceo|cfo|director|vp|banker|executive|management/.test(t))
+    chips.push({ label:"Senior leadership", type:"audience" });
   else if (/employ|staff|team|workforce|junior/.test(t))
-    chips.push("Employees");
+    chips.push({ label:"Employees", type:"audience" });
   else if (/client|customer|partner/.test(t))
-    chips.push("Clients");
+    chips.push({ label:"Clients", type:"audience" });
   else if (/colleague|peer/.test(t))
-    chips.push("Colleagues");
+    chips.push({ label:"Colleagues", type:"audience" });
 
   // Occasion
-  if (/diwali/.test(t)) chips.push("Diwali");
-  else if (/new year|new-year/.test(t)) chips.push("New Year");
-  else if (/wedding|favour|favor/.test(t)) chips.push("Wedding favours");
-  else if (/onboard|joining|welcome|new hire/.test(t)) chips.push("Onboarding");
-  else if (/anniver/.test(t)) chips.push("Anniversary");
-  else if (/event|conference|offsite/.test(t)) chips.push("Corporate event");
-  else if (/birthday/.test(t)) chips.push("Birthday");
-  else if (/thank|appreciation/.test(t)) chips.push("Thank-you");
+  if (/diwali/.test(t)) chips.push({ label:"Diwali", type:"occasion" });
+  else if (/new year|new-year/.test(t)) chips.push({ label:"New Year", type:"occasion" });
+  else if (/wedding|favour|favor/.test(t)) chips.push({ label:"Wedding favours", type:"occasion" });
+  else if (/onboard|joining|welcome|new hire/.test(t)) chips.push({ label:"Onboarding", type:"occasion" });
+  else if (/anniver/.test(t)) chips.push({ label:"Anniversary", type:"occasion" });
+  else if (/event|conference|offsite/.test(t)) chips.push({ label:"Corporate event", type:"occasion" });
+  else if (/birthday/.test(t)) chips.push({ label:"Birthday", type:"occasion" });
+  else if (/thank|appreciation/.test(t)) chips.push({ label:"Thank-you", type:"occasion" });
 
-  // Quantity — also catches "guests"
+  // Quantity
   const qtyMatch = t.match(/(\d+)\s*(people|person|gift|unit|recipient|staff|employee|colleague|banker|head|no|guest)/);
-  if (qtyMatch) chips.push(`${qtyMatch[1]} guests`);
+  if (qtyMatch) chips.push({ label:`${qtyMatch[1]} guests`, type:"qty" });
 
-  // Budget
-  const budgetMatch = t.match(/₹?\s*(\d[\d,]*)\s*k?(?:\s*each|\s*per|\s*\/|\s*unit)?/);
+  // Budget — emphasised
+  const budgetMatch = t.match(/(?:₹|rs\.?|inr)?\s*(\d[\d,]*)\s*k?(?:\s*each|\s*per|\s*\/|\s*unit)?/i);
   if (budgetMatch) {
     let amount = parseInt(budgetMatch[1].replace(/,/g, ""));
-    if (t.includes(budgetMatch[1] + "k") || t.includes(budgetMatch[1] + " k")) amount *= 1000;
-    if (amount >= 100) chips.push(`₹${amount.toLocaleString("en-IN")} budget`);
+    const afterNum = t.slice(t.indexOf(budgetMatch[1]) + budgetMatch[1].length, t.indexOf(budgetMatch[1]) + budgetMatch[1].length + 2);
+    if (afterNum.includes("k")) amount *= 1000;
+    if (amount >= 100 && amount <= 500000)
+      chips.push({ label:`₹${amount.toLocaleString("en-IN")}`, type:"budget" });
   }
 
-  // Restrictions
-  if (/no food|non.edible|no edible|no consumable|nothing edible/.test(t)) chips.push("No edibles");
-  if (/non.fragile|nothing fragile|no fragile|courier/.test(t)) chips.push("Non-fragile");
+  // Constraints — emphasised
+  if (/no food|non.edible|no edible|no consumable|nothing edible/.test(t))
+    chips.push({ label:"Non-consumable", type:"constraint" });
+  if (/non.fragile|nothing fragile|no fragile|courier/.test(t))
+    chips.push({ label:"Non-fragile", type:"constraint" });
 
   return chips.length > 0 ? chips : null;
+}
+
+// Backwards-compatible: return just labels for contextLine etc
+function parseBriefLabels(text) {
+  const chips = parseBrief(text);
+  return chips ? chips.map(c => c.label) : null;
 }
 
 // Emotional context line based on parsed brief
@@ -187,7 +198,7 @@ export default function App() {
   // Live parse brief as user types
   useEffect(() => {
     const chips = parseBrief(brief);
-    setLiveChips(chips);
+    setLiveChips(chips ? chips.map(c => c.label) : null);
   }, [brief]);
 
   // (Dove speaks through the layout, not through a popup)
@@ -544,18 +555,30 @@ export default function App() {
                 </button>
               </div>
 
-              {/* LIVE PARSING — shows what AI is understanding */}
+              {/* LIVE PARSING — shows semantic understanding as user types */}
               <div style={S.liveParseRow}>
-                {liveChips && liveChips.length > 0 ? (
-                  <>
-                    <span style={S.liveParseLabel}>✦</span>
-                    {liveChips.map((c,i) => (
-                      <span key={i} style={S.liveParsedChip}>{c}</span>
-                    ))}
-                  </>
-                ) : (
-                  <span style={S.liveParseHint}>Understands budget, scale, occasions, constraints · Results in seconds</span>
-                )}
+                {(() => {
+                  const parsed = parseBrief(brief);
+                  if (!parsed || parsed.length === 0) {
+                    return <span style={S.liveParseHint}>Understands budget, scale, occasions, constraints · Results in seconds</span>;
+                  }
+                  return (
+                    <>
+                      <span style={S.liveParseLabel}>Understood:</span>
+                      {parsed.map((c,i) => {
+                        const isBudget = c.type === "budget";
+                        const isConstraint = c.type === "constraint";
+                        return (
+                          <span key={i} style={{
+                            ...S.liveParsedChip,
+                            ...(isBudget ? S.liveParsedChipBudget : {}),
+                            ...(isConstraint ? S.liveParsedChipConstraint : {}),
+                          }}>{c.label}</span>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
               </div>
 
               <div style={S.quickStarts}>
@@ -634,7 +657,11 @@ export default function App() {
                   return (
                     <div style={S.briefChipsRow}>
                       {chips.map((c,i) => (
-                        <span key={i} style={S.briefChip}>{c}</span>
+                        <span key={i} style={{
+                          ...S.briefChip,
+                          ...(c.type === "budget" ? S.briefChipBudget : {}),
+                          ...(c.type === "constraint" ? S.briefChipConstraint : {}),
+                        }}>{c.label}</span>
                       ))}
                     </div>
                   );
@@ -651,7 +678,7 @@ export default function App() {
                 )}
                 {brief && (
                   <p style={S.directionsContext}>
-                    {contextLine(liveChips || parseBrief(brief))}
+                    {contextLine(liveChips || parseBriefLabels(brief))}
                   </p>
                 )}
 
@@ -890,10 +917,18 @@ const styles = {
   homeBtn: { width:52, height:52, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
 
   // LIVE PARSING ROW
-  liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:24, marginBottom:28, flexWrap:"wrap" },
-  liveParseLabel: { fontSize:11, color:DOVE_BLUE, fontWeight:600 },
-  liveParsedChip: { fontSize:11, color:DOVE_BLUE, background:"rgba(107,140,174,0.1)", padding:"3px 10px", border:`1px solid rgba(107,140,174,0.25)`, fontWeight:500, letterSpacing:"0.3px" },
+  liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:28, marginBottom:24, flexWrap:"wrap" },
+  liveParseLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", flexShrink:0 },
+  liveParsedChip: { fontSize:12, color:"#444", background:SURFACE, padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
+  liveParsedChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`1px solid rgba(107,140,174,0.3)`, fontWeight:600 },
+  liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.07)", border:`1px solid rgba(122,74,42,0.25)`, fontWeight:500 },
   liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300, letterSpacing:"0.3px" },
+
+  // Brief chips on results page — same semantic colours
+  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:18 },
+  briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
+  briefChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`1px solid rgba(107,140,174,0.3)`, fontWeight:600 },
+  briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.07)", border:`1px solid rgba(122,74,42,0.25)`, fontWeight:500 },
 
   quickStarts: { marginTop:"auto" },
   quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 12px" },
