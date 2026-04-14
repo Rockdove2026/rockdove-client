@@ -80,17 +80,19 @@ function parseBrief(text) {
   else if (/birthday/.test(t)) chips.push({ label:"Birthday", type:"occasion" });
   else if (/thank|appreciation/.test(t)) chips.push({ label:"Thank-you", type:"occasion" });
 
-  // Quantity
-  const qtyMatch = t.match(/(\d+)\s*(people|person|gift|unit|recipient|staff|employee|colleague|banker|head|no|guest)/);
-  if (qtyMatch) chips.push({ label:`${qtyMatch[1]} guests`, type:"qty" });
+  // Quantity — must be followed by a people/group word to avoid catching budget numbers
+  const qtyMatch = t.match(/\b(\d{1,4})\s*(people|person|gifts?|units?|recipients?|staff|employees?|colleagues?|bankers?|heads?|guests?)\b/);
+  if (qtyMatch) chips.push({ label:`${qtyMatch[1]} ${parseInt(qtyMatch[1])===1?"guest":"guests"}`, type:"qty" });
 
-  // Budget — emphasised
-  const budgetMatch = t.match(/(?:₹|rs\.?|inr)?\s*(\d[\d,]*)\s*k?(?:\s*each|\s*per|\s*\/|\s*unit)?/i);
+  // Budget — requires ₹/rs/inr symbol OR budget keyword to avoid catching quantity numbers
+  const budgetMatch = t.match(/(?:(?:₹|rs\.?|inr)\s*(\d[\d,]*)\s*k?)|(?:\b(\d[\d,]*)\s*k?\s*(?:each|per\s+(?:gift|head|person|unit)|budget|\/head|\/gift))/i);
   if (budgetMatch) {
-    let amount = parseInt(budgetMatch[1].replace(/,/g, ""));
-    const afterNum = t.slice(t.indexOf(budgetMatch[1]) + budgetMatch[1].length, t.indexOf(budgetMatch[1]) + budgetMatch[1].length + 2);
-    if (afterNum.includes("k")) amount *= 1000;
-    if (amount >= 100 && amount <= 500000)
+    const raw = (budgetMatch[1] || budgetMatch[2] || "").replace(/,/g, "");
+    let amount = parseInt(raw);
+    // Check if followed by 'k'
+    const fullMatch = budgetMatch[0];
+    if (/\d+k/i.test(fullMatch)) amount *= 1000;
+    if (amount >= 200 && amount <= 500000)
       chips.push({ label:`₹${amount.toLocaleString("en-IN")}`, type:"budget" });
   }
 
