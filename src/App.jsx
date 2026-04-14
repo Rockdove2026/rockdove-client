@@ -1019,6 +1019,7 @@ export default function App() {
                     <p style={S.topPicksLabel}>Best fit for your brief</p>
                     <div style={S.topPicksGrid}>
                       {sortedGrid.slice(0,2).map((p,i) => {
+                        const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i);
                         return (
                           <div key={p.id} style={S.topCard}
                             onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
