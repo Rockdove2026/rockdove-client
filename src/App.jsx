@@ -72,15 +72,16 @@ function parseBrief(text) {
   // Occasion
   if (/diwali/.test(t)) chips.push("Diwali");
   else if (/new year|new-year/.test(t)) chips.push("New Year");
+  else if (/wedding|favour|favor/.test(t)) chips.push("Wedding favours");
   else if (/onboard|joining|welcome|new hire/.test(t)) chips.push("Onboarding");
   else if (/anniver/.test(t)) chips.push("Anniversary");
   else if (/event|conference|offsite/.test(t)) chips.push("Corporate event");
   else if (/birthday/.test(t)) chips.push("Birthday");
   else if (/thank|appreciation/.test(t)) chips.push("Thank-you");
 
-  // Quantity
-  const qtyMatch = t.match(/(\d+)\s*(people|person|gift|unit|recipient|staff|employee|colleague|banker|head|no)/);
-  if (qtyMatch) chips.push(`${qtyMatch[1]} gifts`);
+  // Quantity — also catches "guests"
+  const qtyMatch = t.match(/(\d+)\s*(people|person|gift|unit|recipient|staff|employee|colleague|banker|head|no|guest)/);
+  if (qtyMatch) chips.push(`${qtyMatch[1]} guests`);
 
   // Budget
   const budgetMatch = t.match(/₹?\s*(\d[\d,]*)\s*k?(?:\s*each|\s*per|\s*\/|\s*unit)?/);
@@ -99,14 +100,16 @@ function parseBrief(text) {
 
 // Emotional context line based on parsed brief
 function contextLine(chips) {
-  if (!chips) return null;
-  const isSenior = chips.some(c => c.toLowerCase().includes("senior") || c.toLowerCase().includes("leadership"));
-  const isDiwali = chips.some(c => c.toLowerCase().includes("diwali"));
-  const isOnboard = chips.some(c => c.toLowerCase().includes("onboard"));
-  const isClient = chips.some(c => c.toLowerCase().includes("client"));
+  if (!chips) return "Curated for exactly this brief.";
+  const isSenior = chips.some(c => /senior|leadership/i.test(c));
+  const isDiwali = chips.some(c => /diwali/i.test(c));
+  const isWedding = chips.some(c => /wedding/i.test(c));
+  const isOnboard = chips.some(c => /onboard/i.test(c));
+  const isClient = chips.some(c => /client/i.test(c));
 
   if (isSenior && isDiwali) return "For senior teams where the gift reflects judgment, not just budget.";
-  if (isSenior) return "For people who notice the difference between thoughtful and generic.";
+  if (isWedding) return "For guests who remember the gesture long after the day.";
+  if (isSenior) return "For people who notice the difference between considered and generic.";
   if (isDiwali) return "Festive, but never predictable.";
   if (isOnboard) return "A first impression that sets the tone for everything after.";
   if (isClient) return "Gifts that strengthen the relationship, quietly.";
@@ -482,14 +485,14 @@ export default function App() {
     </div>
   ) : null;
 
-  // Inline refinement chips — taste filters, not UI toggles
+  // Inline refinement chips — two groups with hierarchy
   const REFINE_CHIPS = [
-    { label:"Elevate", query:" more premium, ultra-luxury only", note:"Shifted toward elevated, artisanal selections." },
-    { label:"No food", query:" nothing edible or consumable", note:"Shifted toward non-edible options only." },
-    { label:"More functional", query:" desk-friendly, practical, everyday use", note:"Shifted toward purposeful, functional gifting." },
-    { label:"More distinctive", query:" unique, rare, unexpected category", note:"Shifted toward more distinctive, memorable pieces." },
-    { label:"More artisan", query:" handcrafted, artisan-made, Indian craft", note:"Shifted toward handcrafted, artisan-led selections." },
-    { label:"Different angle", query:" completely different style and category", note:"Taking a different angle entirely." },
+    { label:"Elevate",          group:"refine",     query:" more premium, ultra-luxury only",          note:"Shifted toward elevated, artisanal selections." },
+    { label:"More distinctive", group:"refine",     query:" unique, rare, unexpected category",        note:"Shifted toward more distinctive, memorable pieces." },
+    { label:"Different angle",  group:"refine",     query:" completely different style and category",  note:"Taking a different angle entirely." },
+    { label:"No food",          group:"constraint", query:" nothing edible or consumable",             note:"Shifted toward non-edible options only." },
+    { label:"More functional",  group:"constraint", query:" desk-friendly, practical, everyday use",   note:"Shifted toward purposeful, functional gifting." },
+    { label:"More artisan",     group:"constraint", query:" handcrafted, artisan-made, Indian craft",  note:"Shifted toward handcrafted, artisan-led selections." },
   ];
 
   return (
@@ -623,12 +626,24 @@ export default function App() {
             <div style={S.directionsWrap}>
               <div style={S.directionsHdr}>
                 <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
-                {brief && (
-                  <p style={S.briefEcho}>"{brief.length > 90 ? brief.slice(0,90)+"…" : brief}"</p>
-                )}
+
+                {/* Structured brief chips — not raw quoted input */}
+                {(() => {
+                  const chips = parseBrief(brief);
+                  if (!chips?.length) return null;
+                  return (
+                    <div style={S.briefChipsRow}>
+                      {chips.map((c,i) => (
+                        <span key={i} style={S.briefChip}>{c}</span>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 <h2 style={S.directionsH2}>
                   Three directions. <em style={{ color:DOVE_BLUE }}>All viable.</em>
                 </h2>
+
                 {briefSummary && (
                   <p style={S.directionsIntel}>
                     <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
@@ -639,25 +654,32 @@ export default function App() {
                     {contextLine(liveChips || parseBrief(brief))}
                   </p>
                 )}
-                {/* Inline refinement — ambient, not intrusive */}
+
+                {/* Decision confidence cue */}
+                <p style={S.confidenceCue}>
+                  All three are aligned to your brief. Choose based on tone.
+                </p>
+
+                {/* Refinement chips — two groups with visual hierarchy */}
                 <div style={S.refineChipsRow}>
                   <span style={S.refineChipsLabel}>Refine:</span>
-                  {REFINE_CHIPS.map((c,i) => (
+                  {REFINE_CHIPS.filter(c => c.group === "refine").map((c,i) => (
                     <button key={i} style={S.refineChipBtn}
-                      onClick={() => {
-                        const refined = brief + c.query;
-                        setBrief(refined);
-                        setRefinedNote(c.note);
-                        handleSearch(refined);
-                      }}>
+                      onClick={() => { const r = brief + c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>
+                      {c.label}
+                    </button>
+                  ))}
+                  <span style={{ ...S.refineChipsLabel, marginLeft:8 }}>Constraints:</span>
+                  {REFINE_CHIPS.filter(c => c.group === "constraint").map((c,i) => (
+                    <button key={i} style={S.refineChipBtnMuted}
+                      onClick={() => { const r = brief + c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>
                       {c.label}
                     </button>
                   ))}
                 </div>
                 {refinedNote && (
                   <p style={S.refinedNote}>
-                    <span style={{ color:DOVE_BLUE, marginRight:6 }}>✦</span>
-                    {refinedNote}
+                    <span style={{ color:DOVE_BLUE, marginRight:6 }}>✦</span>{refinedNote}
                   </p>
                 )}
               </div>
@@ -686,7 +708,12 @@ export default function App() {
                         ))}
                       </div>
                       <div style={S.dirCardBody}>
-                        <p style={S.dirCardNum}>Direction {d.number}</p>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                          <p style={{ ...S.dirCardNum, margin:0 }}>Direction {d.number}</p>
+                          {i === 0 && <span style={S.dirBadge}>Most chosen</span>}
+                          {i === 1 && <span style={S.dirBadge}>Balanced option</span>}
+                          {i === 2 && <span style={S.dirBadge}>Statement choice</span>}
+                        </div>
                         <p style={S.dirCardName}>{d.name}</p>
                         <p style={S.dirCardTagline}>{d.tagline}</p>
                         <p style={S.dirCardDesc}>{d.description}</p>
@@ -897,10 +924,27 @@ const styles = {
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
   directionsHdr: { marginBottom:36 },
-  directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" },
-  briefEcho: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 16px", letterSpacing:"0.2px" },
+  directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 12px" },
+
+  // Structured brief chips — replaces raw quoted echo
+  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:18 },
+  briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400, letterSpacing:"0.2px" },
+
   directionsIntel: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", margin:"8px 0 6px", lineHeight:1.6 },
-  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#999", margin:"0 0 0", lineHeight:1.5 },
+  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#999", margin:"0 0 14px", lineHeight:1.5 },
+
+  // Decision confidence cue
+  confidenceCue: { fontSize:12, color:"#bbb", letterSpacing:"0.5px", margin:"0 0 18px", fontWeight:300 },
+
+  // Inline refinement chips — two groups
+  refineChipsRow: { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:4 },
+  refineChipsLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", flexShrink:0 },
+  refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#333", background:"none", border:`1px solid #ccc`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
+  refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#999", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
+  refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
+
+  // Direction badge
+  dirBadge: { fontSize:9, fontWeight:500, letterSpacing:"1.5px", textTransform:"uppercase", color:"#aaa", border:`1px solid #e8e5df`, padding:"2px 8px" },
   // SHARPER HEADLINE
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
   // EMOTIONAL CONTEXT LINE
