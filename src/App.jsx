@@ -896,11 +896,43 @@ export default function App() {
         const price = p._price || 0;
         const boxContents = formatBox(p.whats_in_box);
         const isHearted = hearted.has(p.id);
+        const briefChips = parseBrief(brief);
+        const budget = lastFilters?.budget || null;
+
+        // Client-side confidence cue generation — no API call
+        const cues = [];
+        if (budget && price <= budget) cues.push("Fits budget");
+        if (budget && price <= budget * 0.9) cues.push("Under budget");
+        const tags = p._tags || [];
+        const isNonEdible = !p.edible && !tags.some(t => /edible|consumable|food|snack|beverage/.test(t));
+        if (isNonEdible) cues.push("Non-consumable");
+        if (p.moq && parseInt(p.moq) <= 50) cues.push("Bulk-friendly");
+        if (tags.some(t => /handcraft|artisan|hand-finish|handmade/.test(t))) cues.push("Handcrafted");
+        if (tags.some(t => /made-in-india/.test(t))) cues.push("Made in India");
+        if (p.tier === "Gold") cues.push("Gold tier");
+
+        // Client-side Dove fit line — derived from brief + product
+        const doveFitLine = (() => {
+          const parts = [];
+          if (budget && price <= budget) parts.push("within budget");
+          if (isNonEdible && briefChips?.some(c => c.type === "constraint")) parts.push("meets your non-consumable requirement");
+          if (tags.some(t => /keepsake|collectible|heritage/.test(t))) parts.push("strong keepsake value");
+          if (p.moq && parseInt(p.moq) <= 50) parts.push("distributable at your scale");
+          if (tags.some(t => /artisan|handcraft/.test(t))) parts.push("artisan provenance");
+          if (parts.length === 0) return null;
+          return "A strong fit for this brief — " + parts.join(", ") + ".";
+        })();
+
+        // "Also considered" — other products in same direction, exclude current
+        const alsoConsidered = gridProducts.filter(op => op.id !== p.id).slice(0, 4);
+
         return (
           <div style={S.modalOverlay} onClick={()=>setSelectedProduct(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
               <button style={S.modalClose} onClick={()=>setSelectedProduct(null)}>×</button>
               <div style={S.modalInner}>
+
+                {/* Left — image */}
                 <div style={S.modalImgWrap}>
                   {p.image_url ? (
                     <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}} />
@@ -910,34 +942,99 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Right — intelligence-first layout */}
                 <div style={S.modalContent}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+
+                  {/* 1. Dove fit explanation */}
+                  {doveFitLine && (
+                    <div style={S.modalDoveLine}>
+                      <span style={{ fontWeight:600, color:DOVE_BLUE, marginRight:6 }}>Dove:</span>
+                      <span style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#555", lineHeight:1.6 }}>{doveFitLine}</span>
+                    </div>
+                  )}
+
+                  {/* 2. Selected for brief */}
+                  {briefChips?.length > 0 && (
+                    <div style={S.modalBriefRow}>
+                      <span style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", flexShrink:0 }}>For:</span>
+                      {briefChips.map((c,i) => (
+                        <span key={i} style={{
+                          fontSize:11, color:"#666", background:SURFACE, border:`1px solid ${BORDER}`, padding:"2px 8px",
+                          ...(c.type==="budget" ? { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 } : {}),
+                          ...(c.type==="constraint" ? { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` } : {}),
+                        }}>{c.label}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 3. Product identity */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", margin:"14px 0 4px" }}>
                     <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
                       {TIER_LABEL[p.tier]||p.tier||""}
                     </span>
-                    <button style={{ background:"none", border:"none", fontSize:26, color:isHearted?"#9B3A2A":"#ccc", cursor:"pointer", lineHeight:1 }}
+                    <button style={{ background:"none", border:"none", fontSize:24, color:isHearted?"#9B3A2A":"#ccc", cursor:"pointer", lineHeight:1 }}
                       onClick={()=>toggleHeart(p)}>{isHearted?"♥":"♡"}</button>
                   </div>
-                  <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, lineHeight:1.25, margin:"0 0 6px" }}>{p.name||""}</p>
-                  <p style={{ fontSize:11, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 18px" }}>{p.category||""}</p>
-                  <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:28, fontWeight:400, color:DARK, margin:"0 0 22px" }}>₹{price.toLocaleString("en-IN")}</p>
-                  {p.description && <p style={{ fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:"#444", lineHeight:1.85, margin:"0 0 22px" }}>{String(p.description)}</p>}
-                  {boxContents && (
-                    <div style={{ marginBottom:20, paddingBottom:18, borderBottom:`1px solid ${BORDER}` }}>
-                      <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 8px" }}>What's in the box</p>
-                      <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", lineHeight:1.8, margin:0 }}>{boxContents}</p>
+                  <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:24, fontWeight:400, color:DARK, lineHeight:1.25, margin:"0 0 3px" }}>{p.name||""}</p>
+                  <p style={{ fontSize:10, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 12px" }}>{p.category||""}</p>
+                  <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 14px" }}>₹{price.toLocaleString("en-IN")}</p>
+
+                  {/* 4. Confidence cues */}
+                  {cues.length > 0 && (
+                    <div style={S.modalCues}>
+                      {cues.slice(0,4).map((c,i) => (
+                        <span key={i} style={S.modalCue}>✓ {c}</span>
+                      ))}
                     </div>
                   )}
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px 24px", marginBottom:26 }}>
-                    {p.moq && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Min. Order</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{p.moq} units</p></div>}
-                    {p.lead_time && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Lead Time</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{String(p.lead_time)}</p></div>}
-                    {p.box_dimensions && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Dimensions</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{String(p.box_dimensions)}</p></div>}
-                    {p.weight_grams && <div><p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 5px" }}>Weight</p><p style={{ fontSize:14, color:"#333", margin:0 }}>{p.weight_grams}g</p></div>}
+
+                  {/* 5. Description */}
+                  {p.description && (
+                    <p style={{ fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#555", lineHeight:1.8, margin:"14px 0" }}>{String(p.description)}</p>
+                  )}
+
+                  {/* 6. What's in the box */}
+                  {boxContents && (
+                    <div style={{ marginBottom:14, paddingBottom:14, borderBottom:`1px solid ${BORDER}` }}>
+                      <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 6px" }}>What's in the box</p>
+                      <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#555", lineHeight:1.7, margin:0 }}>{boxContents}</p>
+                    </div>
+                  )}
+
+                  {/* 7. Specs — compact grid */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 24px", marginBottom:18 }}>
+                    {p.moq && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Min. Order</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{p.moq} units</p></div>}
+                    {p.lead_time && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Lead Time</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{String(p.lead_time)}</p></div>}
+                    {p.box_dimensions && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Dimensions</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{String(p.box_dimensions)}</p></div>}
+                    {p.weight_grams && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Weight</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{p.weight_grams}g</p></div>}
                   </div>
+
+                  {/* 8. Save button — context-aware */}
                   <button style={{ ...S.btnGreen, ...(isHearted?{background:"#9B3A2A",boxShadow:"0 4px 0 #e8b4a8"}:{}) }}
                     onClick={()=>toggleHeart(p)}>
-                    {isHearted?"♥  Saved to shortlist":"♡  Save to shortlist"}
+                    {isHearted ? "♥  Saved for this brief" : "♡  Save to shortlist"}
                   </button>
+
+                  {/* 9. Also considered — horizontal strip */}
+                  {alsoConsidered.length > 0 && (
+                    <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${BORDER}` }}>
+                      <p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" }}>Also in this direction</p>
+                      <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
+                        {alsoConsidered.map(op => (
+                          <div key={op.id} style={{ flexShrink:0, width:72, cursor:"pointer" }}
+                            onClick={() => setSelectedProduct({...op})}>
+                            <div style={{ width:72, height:72, background:op._bg||SURFACE, overflow:"hidden", marginBottom:4 }}>
+                              {op.image_url && <img src={op.image_url} alt={op.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                            </div>
+                            <p style={{ fontSize:10, color:"#777", margin:"0 0 1px", lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:72 }}>{op.name}</p>
+                            <p style={{ fontSize:10, color:"#aaa", margin:0 }}>₹{(op._price||0).toLocaleString("en-IN")}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               </div>
             </div>
@@ -1091,9 +1188,19 @@ const styles = {
   doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0 },
 
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
-  modalBox: { background:"#fff", width:"100%", maxWidth:820, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
+  modalBox: { background:"#fff", width:"100%", maxWidth:860, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
   modalInner: { display:"flex", flex:1, overflow:"hidden" },
-  modalImgWrap: { width:380, height:380, minWidth:380, flexShrink:0, background:SURFACE, overflow:"hidden" },
-  modalContent: { flex:1, padding:"32px 28px", overflowY:"auto" },
+  modalImgWrap: { width:340, minWidth:340, flexShrink:0, background:SURFACE, overflow:"hidden" },
+  modalContent: { flex:1, padding:"24px 26px", overflowY:"auto" },
+
+  // Dove fit line — intelligence-first
+  modalDoveLine: { background:"rgba(107,140,174,0.06)", border:`1px solid rgba(107,140,174,0.2)`, padding:"10px 14px", marginBottom:0, lineHeight:1.5, display:"flex", alignItems:"flex-start", gap:0 },
+
+  // Brief chips in modal
+  modalBriefRow: { display:"flex", alignItems:"center", gap:5, flexWrap:"wrap", marginTop:10, paddingBottom:10, borderBottom:`1px solid ${BORDER}` },
+
+  // Confidence cues
+  modalCues: { display:"flex", gap:8, flexWrap:"wrap", margin:"0 0 4px" },
+  modalCue: { fontSize:11, color:GREEN, fontWeight:500, letterSpacing:"0.3px" },
 };
