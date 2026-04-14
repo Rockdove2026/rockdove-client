@@ -1369,11 +1369,11 @@ const styles = {
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(190px, 1fr))", gap:"24px 14px" },
 
   // Top 2 elevated picks — dove blue border, larger image
-  topPicksRow: { marginBottom:24 },
-  topPicksLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", margin:"0 0 10px" },
+  topPicksRow: { marginBottom:20 },
+  topPicksLabel: { fontSize:11, fontWeight:400, letterSpacing:"0.3px", color:"#888", margin:"0 0 10px", fontFamily:"Georgia,serif", fontStyle:"italic" },
   topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 },
   topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
-  topCardImg: { width:"100%", paddingBottom:"58%", position:"relative", overflow:"hidden" },
+  topCardImg: { width:"100%", paddingBottom:"45%", position:"relative", overflow:"hidden" },
   topCardBody: { padding:"10px 12px 12px" },
   topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:DARK, margin:"4px 0 3px", lineHeight:1.3 },
   topCardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#888", margin:"0 0 6px", lineHeight:1.4 },
