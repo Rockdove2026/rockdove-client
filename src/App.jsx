@@ -93,6 +93,8 @@ function parseBrief(text) {
     /\b(?:under|around|approx|max|upto|up\s+to|within|about)\s+₹?\s*(\d[\d,]*)\s*(k)?\b/i,
     // 3k/3000 each/per gift/per head/budget/per unit
     /\b(\d{1,6})\s*(k)?\s*(?:each|per\s+(?:gift|head|person|unit)|budget|\/head|\/gift)\b/i,
+    // "budget is 3000" or "budget of 3000"
+    /\bbudget\s+(?:is|of|=)\s*₹?\s*(\d[\d,]*)\s*(k)?\b/i,
   ];
   for (const pattern of budgetPatterns) {
     const m = t.match(pattern);
@@ -1329,20 +1331,20 @@ const styles = {
   refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#999", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, marginLeft:4 },
   refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
 
-  dirBadge: { fontSize:9, fontWeight:500, letterSpacing:"1.5px", textTransform:"uppercase", color:"#aaa", border:"1px solid #e8e5df", padding:"2px 8px" },
+  dirBadge: { fontSize:9, fontWeight:400, letterSpacing:"1.5px", textTransform:"uppercase", color:"#999", border:"1px solid #e4e0da", padding:"2px 8px" },
 
   directionCards: { display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:24 },
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
-  dirCardImg: { display:"flex", height:220, overflow:"hidden" },
+  dirCardImg: { display:"flex", height:200, overflow:"hidden" },
   dirCardThumb: { flex:1, overflow:"hidden" },
-  dirCardBody: { padding:"24px 24px 16px", flex:1 },
-  dirCardNum: { fontSize:9, fontWeight:400, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 6px" },
-  dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 6px", lineHeight:1.2 },
-  dirCardTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#555", margin:"0 0 8px", lineHeight:1.6 },
-  dirCardDesc: { fontSize:13, fontWeight:300, color:"#888", margin:"0 0 10px", lineHeight:1.55 },
-  dirCardMicroTags: { fontSize:11, color:DOVE_BLUE, letterSpacing:"0.5px", margin:"0 0 12px", fontWeight:400 },
-  dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:18, fontWeight:400, color:DARK, margin:"0 0 4px" },
-  dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", margin:0 },
+  dirCardBody: { padding:"18px 20px 14px", flex:1 },
+  dirCardNum: { fontSize:9, fontWeight:400, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 5px" },
+  dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:DARK, margin:"0 0 5px", lineHeight:1.2 },
+  dirCardTagline: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:"#555", margin:"0 0 8px", lineHeight:1.55 },
+  dirCardDesc: { fontSize:12, fontWeight:300, color:"#999", margin:"0 0 10px", lineHeight:1.5 },
+  dirCardMicroTags: { fontSize:11, color:DOVE_BLUE, letterSpacing:"0.3px", margin:"0 0 10px", fontWeight:400 },
+  dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:17, fontWeight:400, color:DARK, margin:"0 0 3px" },
+  dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.3px", margin:0 },
   // Blue explore button — not black
   exploreBtn: { margin:"0 24px 24px", padding:"12px 0", background:DOVE_BLUE, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", boxShadow:`0 4px 0 rgba(107,140,174,0.3)` },
 
@@ -1357,25 +1359,25 @@ const styles = {
   dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", margin:0 },
   exploreBtn: { margin:"0 24px 24px", padding:"12px 0", background:DARK, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase" },
 
-  gridWrap: { padding:"24px 28px" },
+  gridWrap: { padding:"20px 28px" },
   backLink: { fontSize:12, color:"#aaa", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", letterSpacing:"0.5px", padding:0 },
-  dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24, paddingBottom:24, borderBottom:`1px solid ${BORDER}` },
-  dirBannerName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 4px" },
-  dirBannerTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888", margin:0 },
+  dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, paddingBottom:16, borderBottom:`1px solid ${BORDER}` },
+  dirBannerName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:DARK, margin:"0 0 3px" },
+  dirBannerTagline: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:"#777", margin:0 },
   sortBtn: { fontSize:11, color:"#bbb", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
   sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}` },
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(190px, 1fr))", gap:"24px 14px" },
 
   // Top 2 elevated picks — dove blue border, larger image
-  topPicksRow: { marginBottom:28 },
-  topPicksLabel: { fontSize:10, fontWeight:600, letterSpacing:"2.5px", textTransform:"uppercase", color:DOVE_BLUE, margin:"0 0 12px" },
-  topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 },
-  topCard: { border:`1.5px solid ${DOVE_BLUE}`, background:"#fff", cursor:"pointer", overflow:"hidden" },
-  topCardImg: { width:"100%", paddingBottom:"75%", position:"relative", overflow:"hidden" },
-  topCardBody: { padding:"12px 14px 14px" },
-  topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:17, fontWeight:400, color:DARK, margin:"4px 0 4px", lineHeight:1.3 },
-  topCardPos: { fontFamily:"Georgia,serif", fontSize:12, fontWeight:300, fontStyle:"italic", color:"#777", margin:"0 0 8px", lineHeight:1.5 },
-  topCardPrice: { fontSize:15, fontWeight:600, color:DARK, margin:0 },
+  topPicksRow: { marginBottom:24 },
+  topPicksLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", margin:"0 0 10px" },
+  topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 },
+  topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
+  topCardImg: { width:"100%", paddingBottom:"58%", position:"relative", overflow:"hidden" },
+  topCardBody: { padding:"10px 12px 12px" },
+  topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:DARK, margin:"4px 0 3px", lineHeight:1.3 },
+  topCardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#888", margin:"0 0 6px", lineHeight:1.4 },
+  topCardPrice: { fontSize:14, fontWeight:600, color:DARK, margin:0 },
 
   // Brief-aware positioning line on standard cards
   cardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 4px", lineHeight:1.4 },
