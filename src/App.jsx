@@ -759,9 +759,9 @@ export default function App() {
                       <div style={S.dirCardBody}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
                           <p style={{ ...S.dirCardNum, margin:0 }}>Direction {d.number}</p>
-                          {i===0&&<span style={S.dirBadge}>Most chosen</span>}
-                          {i===1&&<span style={S.dirBadge}>Well balanced</span>}
-                          {i===2&&<span style={S.dirBadge}>Statement choice</span>}
+                          {i===0&&<span style={{ ...S.dirBadge, ...S.dirBadgePrimary }}>Most chosen</span>}
+                          {i===1&&<span style={{ ...S.dirBadge, ...S.dirBadgeSecondary }}>Well balanced</span>}
+                          {i===2&&<span style={{ ...S.dirBadge, ...S.dirBadgeTertiary }}>Statement choice</span>}
                         </div>
                         <p style={S.dirCardName}>{d.name}</p>
                         <p style={S.dirCardTagline}>{d.tagline}</p>
@@ -810,7 +810,7 @@ export default function App() {
                         if (!parsed.length) return null;
                         return (
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" }}>
-                            <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb" }}>Selected for:</span>
+                            <span style={{ fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#777", fontFamily:"'Josefin Sans',sans-serif" }}>Selected for:</span>
                             {parsed.map((c,i) => (
                               <span key={i} style={{ fontSize:11, color:"#666", background:SURFACE, border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
                                 ...(c.type==="budget"?{ color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 }:{}),
@@ -839,7 +839,7 @@ export default function App() {
                   </div>
                 )}
 
-                <p style={{ fontSize:11, color:"#bbb", letterSpacing:"1px", textTransform:"uppercase", marginBottom:16 }}>
+                <p style={{ fontSize:12, color:"#888", letterSpacing:"1px", textTransform:"uppercase", marginBottom:16, fontFamily:"'Josefin Sans',sans-serif" }}>
                   {sortedGrid.length} gifts in this direction
                 </p>
 
@@ -872,7 +872,7 @@ export default function App() {
 
                 {/* REMAINING */}
                 {sort==="rec" && sortedGrid.length>4 && (
-                  <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 14px" }}>
+                  <p style={{ fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", margin:"4px 0 14px", fontFamily:"'Josefin Sans',sans-serif" }}>
                     More options aligned to your brief
                   </p>
                 )}
@@ -1079,50 +1079,54 @@ const styles = {
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"40px 32px" },
   directionsHdr: { marginBottom:32 },
-  directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 14px" },
+  directionsEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#888", margin:"0 0 14px", fontFamily:"'Josefin Sans',sans-serif" },
   briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:20 },
   briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
-  briefChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
+  briefChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
   briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
-  directionsIntel: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", margin:"8px 0 6px", lineHeight:1.6 },
-  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888", margin:"0 0 10px", lineHeight:1.5 },
-  confidenceCue: { fontSize:12, color:"#888", letterSpacing:"0.3px", margin:"0 0 18px", fontWeight:400 },
+  directionsIntel: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#444", margin:"8px 0 6px", lineHeight:1.6 },
+  directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#666", margin:"0 0 10px", lineHeight:1.5 },
+  confidenceCue: { fontSize:13, color:"#666", letterSpacing:"0.2px", margin:"0 0 18px", fontWeight:400, fontFamily:"Georgia,serif" },
   refineChipsRow: { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
-  refineChipsLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", flexShrink:0 },
-  refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#333", background:"none", border:`1px solid #ccc`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
-  refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#999", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, marginLeft:4 },
+  refineChipsLabel: { fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#888", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif" },
+  refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#333", background:"none", border:`1px solid #bbb`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
+  refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, marginLeft:4 },
   refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
 
-  // Direction cards
-  dirBadge: { fontSize:9, fontWeight:400, letterSpacing:"1.5px", textTransform:"uppercase", color:"#999", border:"1px solid #e4e0da", padding:"2px 8px" },
+  // Direction badges — colour-coded, actually readable
+  dirBadge: { fontSize:10, fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", padding:"3px 9px", fontFamily:"'Josefin Sans',sans-serif", flexShrink:0 },
+  dirBadgePrimary:   { background:DOVE_BLUE, color:"#fff", border:`1px solid ${DOVE_BLUE}` },
+  dirBadgeSecondary: { background:"transparent", color:"#444", border:"1px solid #999" },
+  dirBadgeTertiary:  { background:DARK, color:"#fff", border:`1px solid ${DARK}` },
+
   directionCards: { display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:24 },
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
   dirCardImg: { display:"flex", height:200, overflow:"hidden" },
   dirCardThumb: { flex:1, overflow:"hidden" },
   dirCardBody: { padding:"18px 20px 14px", flex:1 },
-  dirCardNum: { fontSize:9, fontWeight:400, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 5px" },
-  dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:DARK, margin:"0 0 5px", lineHeight:1.2 },
-  dirCardTagline: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:"#555", margin:"0 0 8px", lineHeight:1.55 },
-  dirCardDesc: { fontSize:12, fontWeight:300, color:"#999", margin:"0 0 10px", lineHeight:1.5 },
-  dirCardMicroTags: { fontSize:11, color:DOVE_BLUE, letterSpacing:"0.3px", margin:"0 0 10px", fontWeight:400 },
-  dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:17, fontWeight:400, color:DARK, margin:"0 0 3px" },
-  dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.3px", margin:0 },
-  exploreBtn: { margin:"0 20px 20px", padding:"11px 0", background:DOVE_BLUE, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", boxShadow:`0 3px 0 rgba(107,140,174,0.3)` },
+  dirCardNum: { fontSize:10, fontWeight:400, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", margin:"0 0 6px", fontFamily:"'Josefin Sans',sans-serif" },
+  dirCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:21, fontWeight:400, color:DARK, margin:"0 0 6px", lineHeight:1.2 },
+  dirCardTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#444", margin:"0 0 8px", lineHeight:1.55 },
+  dirCardDesc: { fontSize:13, fontWeight:300, color:"#666", margin:"0 0 10px", lineHeight:1.55, fontFamily:"Georgia,serif" },
+  dirCardMicroTags: { fontSize:11, color:DOVE_BLUE, letterSpacing:"0.3px", margin:"0 0 10px", fontWeight:500 },
+  dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:18, fontWeight:400, color:DARK, margin:"0 0 4px" },
+  dirCardCount: { fontSize:12, color:"#888", letterSpacing:"0.3px", margin:0, fontFamily:"'Josefin Sans',sans-serif" },
+  exploreBtn: { margin:"0 20px 20px", padding:"12px 0", background:DOVE_BLUE, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", boxShadow:`0 3px 0 rgba(107,140,174,0.3)` },
 
   // Grid
   gridWrap: { padding:"20px 28px" },
-  backLink: { fontSize:12, color:"#aaa", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", letterSpacing:"0.5px", padding:0 },
+  backLink: { fontSize:12, color:"#666", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", letterSpacing:"0.5px", padding:0 },
   dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, paddingBottom:16, borderBottom:`1px solid ${BORDER}` },
-  dirBannerName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:DARK, margin:"0 0 3px" },
-  dirBannerTagline: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:"#777", margin:0 },
-  sortBtn: { fontSize:11, color:"#bbb", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
-  sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}` },
+  dirBannerName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:DARK, margin:"0 0 3px" },
+  dirBannerTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#555", margin:0 },
+  sortBtn: { fontSize:12, color:"#888", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
+  sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}`, fontWeight:600 },
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(190px, 1fr))", gap:"24px 14px" },
 
   // Top 2 picks
   topPicksRow: { marginBottom:20 },
-  topPicksLabel: { fontSize:11, fontWeight:400, color:"#888", margin:"0 0 10px", fontFamily:"Georgia,serif", fontStyle:"italic" },
+  topPicksLabel: { fontSize:12, fontWeight:400, color:"#666", margin:"0 0 10px", fontFamily:"Georgia,serif", fontStyle:"italic" },
   topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:14 },
   topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
   topCardImg: { width:"100%", aspectRatio:"1", position:"relative", overflow:"hidden", background:SURFACE },
@@ -1132,16 +1136,16 @@ const styles = {
   topCardPrice: { fontSize:14, fontWeight:600, color:DARK, margin:0 },
 
   // Standard cards
-  cardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 4px", lineHeight:1.4 },
+  cardPos: { fontFamily:"Georgia,serif", fontSize:12, fontWeight:300, fontStyle:"italic", color:"#777", margin:"0 0 5px", lineHeight:1.4 },
   card: { cursor:"pointer" },
   cardImg: { width:"100%", paddingBottom:"116%", position:"relative", overflow:"hidden" },
   heartBtn: { position:"absolute", top:8, right:8, width:28, height:28, background:"rgba(255,255,255,0.9)", border:"none", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" },
   cardBody: { paddingTop:10 },
-  tierBadge: { fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", display:"inline-block", padding:"2px 8px", marginBottom:7 },
+  tierBadge: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", display:"inline-block", padding:"3px 8px", marginBottom:7, fontFamily:"'Josefin Sans',sans-serif" },
   tierGold: { color:"#7a5c20", background:"#fdf5e6", border:"1px solid #e8d5a0" },
   tierPlat: { color:"#2a4a7a", background:"#eef3fa", border:"1px solid #b8cce8" },
-  tierSilv: { color:"#666", background:"#f5f5f5", border:"1px solid #e0e0e0" },
-  cardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:DARK, margin:"0 0 3px", lineHeight:1.3 },
+  tierSilv: { color:"#555", background:"#f5f5f5", border:"1px solid #d8d8d8" },
+  cardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:15, fontWeight:400, color:DARK, margin:"0 0 4px", lineHeight:1.3 },
   cardPrice: { fontSize:14, fontWeight:600, color:DARK, margin:0 },
 
   // Shortlist drawer
