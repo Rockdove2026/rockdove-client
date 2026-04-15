@@ -84,7 +84,7 @@ function parseBrief(text) {
     /(?:₹|rs\.?\s*)\s*(\d[\d,]*)\s*(k)?\b/i,
     /\b(?:under|around|approx|max|upto|up\s+to|within|about)\s+₹?\s*(\d[\d,]*)\s*(k)?\b/i,
     /\b(\d{1,6})\s*(k)?\s*(?:each|per\s+(?:gift|head|person|unit)|budget|\/head|\/gift)\b/i,
-    /\bbudget\s+(?:is|of|=)\s*₹?\s*(\d[\d,]*)\s*(k)?\b/i,
+    /\bbudget\s+(?:is|of|=)?\s*₹?\s*(\d[\d,]*)\s*(k)?\b/i,
   ];
   for (const pattern of budgetPatterns) {
     const m = t.match(pattern);
@@ -172,15 +172,15 @@ function pickBriefSignal(product, filters, chips, idx) {
   const underBudget = budget && price <= budget * 0.88;
   const signals = [];
   if (hasNoFoodConstraint && isNonEdible) signals.push(...["non-consumable", "keepsake-friendly", "non-consumable keepsake"]);
-  if (isLarge && isBulk) signals.push(...["suited for large guest lists","easy to distribute at scale","practical for bulk gifting","distributable at your scale"]);
-  else if (isLarge) signals.push(...["suited for larger orders","works well at scale"]);
+  if (isLarge && isBulk) signals.push(...["suited for large guest lists","easy to distribute at scale","practical for bulk gifting","distributable at your scale","scales without compromise","ideal for large-order gifting"]);
+  else if (isLarge) signals.push(...["suited for larger orders","works well at scale","practical for bulk","no fuss at scale"]);
   if (underBudget) signals.push("well within budget");
   if (signals.length === 0) return null;
   return signals[idx % signals.length];
 }
 
 function pickSignal(tags, idx) {
-  const signals = ["strong visual recall","made to be retained","lasting presence","high retention value","visually distinctive","endures beyond the occasion"];
+  const signals = ["strong visual recall","made to be retained","lasting presence","high retention value","visually distinctive","endures beyond the occasion","kept long after the day","a gesture that stays","quietly unforgettable","will outlast the event","carries lasting weight","remembered, not discarded"];
   if (!tags.some(t => /keepsake|collectible|heritage|artisan|premium|luxury|handcraft/.test(t))) return null;
   return signals[idx % signals.length];
 }
