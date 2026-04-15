@@ -144,11 +144,11 @@ const TRAIT_MAP = {
   "Lifestyle":              ["Lifestyle-led", "Considered daily-use", "Understated presence"],
 };
 
-function pickTrait(tags, category) {
+function pickTrait(tags, category, posIdx) {
   if (TRAIT_MAP[category]) {
     const opts = TRAIT_MAP[category];
-    const hash = (tags.join("").length + category.length) % opts.length;
-    return opts[hash];
+    // posIdx drives rotation — adjacent cards in same category get different traits
+    return opts[posIdx % opts.length];
   }
   if (tags.some(t => /ritual|ceremony|festive/.test(t))) return "Ceremonial";
   if (tags.some(t => /keepsake|collectible/.test(t))) return "Keepsake value";
@@ -204,7 +204,7 @@ function briefPositioningLine(product, filters, chips, idx = 0) {
     const category = product.category || "";
     const idNum = parseInt(product.id, 10) || 0;
     const productIdx = (isNaN(idNum) ? 0 : idNum) + (isNaN(idx) ? 0 : idx);
-    const trait = pickTrait(tags, category);
+    const trait = pickTrait(tags, category, productIdx);
     const briefSignal = pickBriefSignal(product, filters, chips, productIdx);
     const signal = pickSignal(tags, productIdx + 1);
     return assembleLine(trait, briefSignal, signal, productIdx);
@@ -728,7 +728,16 @@ export default function App() {
                   <span style={S.refineChipsLabel}>Refine:</span>
                   {REFINE_CHIPS.filter(c => c.group==="refine").map((c,i) => (
                     <button key={i} style={S.refineChipBtn}
-                      onClick={() => { const r=brief+c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>{c.label}</button>
+                      onClick={() => {
+                        // For "Different angle", inject current direction names so Claude actively avoids them
+                        let query = c.query;
+                        if (c.label === "Different angle" && directions.length > 0) {
+                          const dirNames = directions.map(d => d.name).join(", ");
+                          query = ` completely different product categories and aesthetic — avoid anything similar to: ${dirNames}`;
+                        }
+                        const r = brief + query;
+                        setBrief(r); setRefinedNote(c.note); handleSearch(r);
+                      }}>{c.label}</button>
                   ))}
                   <span style={{ ...S.refineChipsLabel, marginLeft:8 }}>Constraints:</span>
                   {REFINE_CHIPS.filter(c => c.group==="constraint").map((c,i) => (
@@ -812,8 +821,8 @@ export default function App() {
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" }}>
                             <span style={{ fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#777", fontFamily:"'Josefin Sans',sans-serif" }}>Selected for:</span>
                             {parsed.map((c,i) => (
-                              <span key={i} style={{ fontSize:11, color:"#666", background:SURFACE, border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
-                                ...(c.type==="budget"?{ color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 }:{}),
+                              <span key={i} style={{ fontSize:11, color:"#555", background:"transparent", border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
+                                ...(c.type==="budget"?{ color:DOVE_BLUE, background:"rgba(107,140,174,0.07)", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 }:{}),
                                 ...(c.type==="constraint"?{ color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` }:{}),
                               }}>{c.label}</span>
                             ))}
@@ -826,7 +835,7 @@ export default function App() {
                         </p>
                       )}
                       {activeDirection.description && (
-                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"5px 0 0", lineHeight:1.6 }}>
+                        <p style={{ fontFamily:"Georgia,serif", fontSize:18, fontWeight:400, fontStyle:"normal", color:"#111", margin:"14px 0 0", lineHeight:1.6, borderLeft:`3px solid ${DOVE_BLUE}`, paddingLeft:16 }}>
                           {activeDirection.description}
                         </p>
                       )}
@@ -843,29 +852,41 @@ export default function App() {
                   {sortedGrid.length} gifts in this direction
                 </p>
 
-                {/* TOP 4 */}
+                {/* TOP 4 — from top 8 ranked, sorted by budget proximity */}
                 {sort==="rec" && sortedGrid.length>=2 && (
                   <div style={S.topPicksRow}>
                     <p style={S.topPicksLabel}>Best fit for your brief</p>
                     <div style={S.topPicksGrid}>
-                      {sortedGrid.slice(0,4).map((p,i) => {
-                        const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i);
-                        return (
-                          <div key={p.id} style={S.topCard} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
-                            <div style={{ ...S.topCardImg, background:p._bg||SURFACE }}>
-                              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain", padding:8 }} onError={e=>{e.target.style.display="none"}}/>}
-                              <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
-                                onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>{hearted.has(p.id)?"♥":"♡"}</button>
+                      {(() => {
+                        const budget = lastFilters?.budget || null;
+                        let pool = sortedGrid.slice(0, 8);
+                        if (budget) {
+                          // Sort pool by price proximity to budget ceiling (closest = best)
+                          pool = [...pool].sort((a, b) => {
+                            const aDist = Math.abs(budget - (a._price || 0));
+                            const bDist = Math.abs(budget - (b._price || 0));
+                            return aDist - bDist;
+                          });
+                        }
+                        return pool.slice(0, 4).map((p, i) => {
+                          const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i);
+                          return (
+                            <div key={p.id} style={S.topCard} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
+                              <div style={{ ...S.topCardImg, background:p._bg||SURFACE }}>
+                                {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain", padding:8 }} onError={e=>{e.target.style.display="none"}}/>}
+                                <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
+                                  onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>{hearted.has(p.id)?"♥":"♡"}</button>
+                              </div>
+                              <div style={S.topCardBody}>
+                                <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv), marginBottom:4 }}>{TIER_LABEL[p.tier]||p.tier}</span>
+                                <p style={S.topCardName}>{p.name||""}</p>
+                                {posLine && <p style={S.topCardPos}>{posLine}</p>}
+                                <p style={S.topCardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
+                              </div>
                             </div>
-                            <div style={S.topCardBody}>
-                              <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv), marginBottom:4 }}>{TIER_LABEL[p.tier]||p.tier}</span>
-                              <p style={S.topCardName}>{p.name||""}</p>
-                              {posLine && <p style={S.topCardPos}>{posLine}</p>}
-                              <p style={S.topCardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 )}
@@ -1045,8 +1066,8 @@ const styles = {
   homeBtn: { width:52, height:52, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
   liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:28, marginBottom:24, flexWrap:"wrap" },
   liveParseLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", flexShrink:0 },
-  liveParsedChip: { fontSize:12, color:"#444", background:SURFACE, padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
-  liveParsedChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
+  liveParsedChip: { fontSize:12, color:"#444", background:"transparent", padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
+  liveParsedChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.07)", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 },
   liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
   liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300 },
   quickStarts: { marginTop:"auto", paddingTop:20 },
@@ -1081,8 +1102,8 @@ const styles = {
   directionsHdr: { marginBottom:32 },
   directionsEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#888", margin:"0 0 14px", fontFamily:"'Josefin Sans',sans-serif" },
   briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:20 },
-  briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
-  briefChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
+  briefChip: { fontSize:12, color:"#555", background:"transparent", border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
+  briefChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.07)", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 },
   briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:36, fontWeight:700, color:DARK, margin:"0 0 12px", lineHeight:1.15 },
   directionsIntel: { fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:"#444", margin:"8px 0 6px", lineHeight:1.6 },
@@ -1122,7 +1143,7 @@ const styles = {
   dirBannerTagline: { fontFamily:"Georgia,serif", fontSize:15, fontStyle:"italic", fontWeight:300, color:"#555", margin:0 },
   sortBtn: { fontSize:12, color:"#888", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
   sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}`, fontWeight:600 },
-  grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(190px, 1fr))", gap:"24px 14px" },
+  grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))", gap:"28px 20px" },
 
   // Top 2 picks
   topPicksRow: { marginBottom:24 },
@@ -1130,22 +1151,22 @@ const styles = {
   topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:16 },
   topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
   topCardImg: { width:"100%", aspectRatio:"1", position:"relative", overflow:"hidden", background:SURFACE },
-  topCardBody: { padding:"12px 14px 16px" },
-  topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:18, fontWeight:400, color:DARK, margin:"6px 0 4px", lineHeight:1.25 },
-  topCardPos: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#666", margin:"0 0 8px", lineHeight:1.45 },
+  topCardBody: { padding:"14px 14px 18px" },
+  topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:19, fontWeight:400, color:DARK, margin:"6px 0 5px", lineHeight:1.25 },
+  topCardPos: { fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, fontStyle:"italic", color:"#555", margin:"0 0 8px", lineHeight:1.6 },
   topCardPrice: { fontSize:16, fontWeight:600, color:DARK, margin:0 },
 
   // Standard cards
-  cardPos: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#666", margin:"0 0 5px", lineHeight:1.4 },
+  cardPos: { fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, fontStyle:"italic", color:"#555", margin:"0 0 6px", lineHeight:1.6 },
   card: { cursor:"pointer" },
   cardImg: { width:"100%", paddingBottom:"116%", position:"relative", overflow:"hidden" },
   heartBtn: { position:"absolute", top:8, right:8, width:28, height:28, background:"rgba(255,255,255,0.9)", border:"none", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" },
-  cardBody: { paddingTop:10 },
-  tierBadge: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", display:"inline-block", padding:"3px 8px", marginBottom:7, fontFamily:"'Josefin Sans',sans-serif" },
+  cardBody: { paddingTop:14, paddingBottom:4 },
+  tierBadge: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", display:"inline-block", padding:"3px 8px", marginBottom:8, fontFamily:"'Josefin Sans',sans-serif" },
   tierGold: { color:"#7a5c20", background:"#fdf5e6", border:"1px solid #e8d5a0" },
   tierPlat: { color:"#2a4a7a", background:"#eef3fa", border:"1px solid #b8cce8" },
   tierSilv: { color:"#555", background:"#f5f5f5", border:"1px solid #d8d8d8" },
-  cardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:17, fontWeight:400, color:DARK, margin:"0 0 4px", lineHeight:1.3 },
+  cardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:19, fontWeight:400, color:DARK, margin:"0 0 5px", lineHeight:1.25 },
   cardPrice: { fontSize:15, fontWeight:600, color:DARK, margin:0 },
 
   // Shortlist drawer
