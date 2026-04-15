@@ -567,13 +567,13 @@ export default function App() {
       {view === "home" && (
         <div style={S.homePage}>
           <div style={S.homeNav}>
-            <div style={{ fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:DOVE_BLUE, fontWeight:600 }}>✦ AI-FIRST</div>
+            <div style={{ opacity:0 }}>·</div>
             <Logo size="md"/>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <div style={S.av}>{initials(session.client_name)}</div>
               <div>
-                <p style={{ fontSize:12, fontWeight:700, letterSpacing:1, textTransform:"uppercase", fontFamily:"'Playfair Display',Georgia,serif", color:DARK, margin:0 }}>{session.client_name}</p>
-                {session.client_company && <p style={{ fontSize:11, color:"#aaa", margin:0 }}>{session.client_company}</p>}
+                <p style={{ fontSize:13, fontWeight:600, letterSpacing:"0.5px", fontFamily:"'Josefin Sans',sans-serif", color:DARK, margin:0 }}>{session.client_name}</p>
+                {session.client_company && <p style={{ fontSize:12, color:"#888", margin:0 }}>{session.client_company}</p>}
               </div>
             </div>
           </div>
@@ -581,30 +581,24 @@ export default function App() {
           <div style={S.hero}>
             <div style={S.heroLeft}>
               <p style={S.homeTaglineLeft}>Gift Intelligence by Ikka Dukka</p>
-              <h1 style={S.heroH1}>Tell me what you need.<br/><em style={{ color:DOVE_BLUE }}>I'll take it from there.</em></h1>
-              <p style={S.heroSub}>Describe your brief in one line. Include occasion, recipients, quantity and budget.</p>
 
-              <div style={S.briefGuideRow}>
-                {[
-                  { label:"Occasion", eg:"Diwali · onboarding · wedding" },
-                  { label:"Recipients", eg:"Senior clients · new hires" },
-                  { label:"Quantity", eg:"50 people · 200 gifts" },
-                  { label:"Budget", eg:"₹3,000 each · under ₹5k" },
-                ].map((g,i) => (
-                  <div key={i} style={S.briefGuideItem}>
-                    <p style={S.briefGuideLabel}>{g.label}</p>
-                    <p style={S.briefGuideEg}>{g.eg}</p>
-                  </div>
-                ))}
-              </div>
+              {/* Headline — anchored to gifting, not generic AI */}
+              <h1 style={S.heroH1}>
+                Tell me what you need.<br/>
+                <em style={{ color:DOVE_BLUE }}>I'll curate the right gifts.</em>
+              </h1>
 
+              {/* Helper text — one line, confident, not instructional */}
+              <p style={S.heroSub}>One line is enough.</p>
+
+              {/* INPUT — the hero of this page */}
               <div style={S.inputBox}>
                 <textarea
                   style={S.homeInput}
                   value={brief}
                   onChange={e => setBrief(e.target.value)}
                   onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSearch(); }}}
-                  placeholder="e.g. 50 senior bankers, Diwali, ₹3,000 each, nothing edible"
+                  placeholder="50 senior bankers · Diwali · ₹3,000 · nothing edible"
                   rows={2}
                   autoFocus
                 />
@@ -617,11 +611,12 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Parse chips — immediate feedback loop */}
               <div style={S.liveParseRow}>
                 {(() => {
                   const parsed = parseBrief(brief);
                   if (!parsed || parsed.length === 0)
-                    return <span style={S.liveParseHint}>Results appear in seconds · No form, no steps</span>;
+                    return <span style={S.liveParseHint}>Understands budget, scale, occasion and constraints — instantly.</span>;
                   return (
                     <>
                       <span style={S.liveParseLabel}>Understood:</span>
@@ -633,9 +628,17 @@ export default function App() {
                 })()}
               </div>
 
+              {/* Trust — pulled close to input, not buried at the bottom */}
+              <div style={S.inlineTrust}>
+                <span style={S.inlineTrustLabel}>Trusted by teams at</span>
+                {TRUST_LOGOS.slice(0,3).map((l,i)=>(
+                  <span key={i} style={S.inlineTrustLogo}>{l}</span>
+                ))}
+              </div>
+
+              {/* Quick starts — shortcuts into the system */}
               <div style={S.quickStarts}>
-                <p style={S.quickStartLabel}>Or try one of these</p>
-                <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   {QUICK_STARTS.map((q,i)=>(
                     <button key={i} style={S.quickChip} onClick={() => handleSearch(q.label)}>{q.label} →</button>
                   ))}
@@ -643,6 +646,7 @@ export default function App() {
               </div>
             </div>
 
+            {/* Right panel — backdrop, not competing */}
             <div style={S.heroRight}>
               <div style={S.heroDarkPanel}>
                 <p style={S.heroPanelEyebrow}>Ikka Dukka</p>
@@ -655,7 +659,7 @@ export default function App() {
                     { label:"Chosen with purpose", sub:"Matched to your brief" },
                   ].map((t,i)=>(
                     <div key={i} style={S.heroPanelPillRow}>
-                      <span style={{ fontSize:8, color:DOVE_BLUE, marginTop:3 }}>✦</span>
+                      <span style={{ fontSize:6, color:"rgba(255,255,255,0.3)", marginTop:5 }}>●</span>
                       <div>
                         <p style={S.heroPanelPillLabel}>{t.label}</p>
                         <p style={S.heroPanelPillSub}>{t.sub}</p>
@@ -674,8 +678,9 @@ export default function App() {
             </div>
           </div>
 
+          {/* Trust bar at bottom — full logos */}
           <div style={S.trustBar}>
-            <span style={S.trustLabel}>Trusted by teams at</span>
+            <span style={S.trustLabel}>Trusted by</span>
             {TRUST_LOGOS.map((l,i)=><span key={i} style={S.trustLogo}>{l}</span>)}
           </div>
         </div>
@@ -1054,25 +1059,33 @@ const styles = {
   homeNav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"18px 52px", borderBottom:`1px solid ${BORDER}` },
   homeTaglineLeft: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 18px", fontWeight:300 },
   hero: { flex:1, display:"flex", gap:0, overflow:"hidden" },
-  heroLeft: { flex:"0 0 54%", padding:"44px 52px 36px", display:"flex", flexDirection:"column", justifyContent:"center" },
-  heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:40, fontWeight:700, color:DARK, lineHeight:1.2, margin:"0 0 12px", letterSpacing:-0.5 },
-  heroSub: { fontSize:14, fontWeight:300, color:"#777", margin:"0 0 24px", lineHeight:1.65 },
-  briefGuideRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 32px", marginBottom:22, paddingBottom:20, borderBottom:`1px solid ${BORDER}` },
+  heroLeft: { flex:"0 0 54%", padding:"36px 52px 32px", display:"flex", flexDirection:"column", justifyContent:"center" },
+  heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:42, fontWeight:700, color:DARK, lineHeight:1.2, margin:"0 0 10px", letterSpacing:-0.5 },
+  heroSub: { fontSize:16, fontWeight:300, color:"#555", margin:"0 0 20px", lineHeight:1.5 },
+
+  // Fix 2: Brief guide — genuinely readable, not a dead zone
+  briefGuideRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px 32px", marginBottom:20, paddingBottom:18, borderBottom:`1px solid ${BORDER}` },
   briefGuideItem: { display:"flex", flexDirection:"column", gap:3 },
-  briefGuideLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#777", margin:0 },
-  briefGuideEg: { fontSize:12, fontWeight:300, color:"#bbb", margin:0 },
-  inputBox: { display:"flex", alignItems:"flex-end", background:"#fff", border:`1px solid #D0CBC3`, boxShadow:"0 2px 20px rgba(0,0,0,0.06)", marginBottom:10 },
-  homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 12px", fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:DARK, lineHeight:1.7, background:"transparent" },
-  homeBtn: { width:52, height:52, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
+  briefGuideLabel: { fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#555", margin:0, fontFamily:"'Josefin Sans',sans-serif" },
+  briefGuideEg: { fontSize:13, fontWeight:300, color:"#888", margin:0 },
+
+  // Fix 3: Input — more visual confidence, heavier border + shadow
+  inputBox: { display:"flex", alignItems:"flex-end", background:"#fff", border:`1.5px solid #B8B0A5`, boxShadow:"0 4px 24px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.05)", marginBottom:12 },
+  homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"18px 20px 14px", fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:DARK, lineHeight:1.7, background:"transparent" },
+  homeBtn: { width:54, height:54, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:22, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
   liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:28, marginBottom:24, flexWrap:"wrap" },
   liveParseLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", flexShrink:0 },
   liveParsedChip: { fontSize:12, color:"#444", background:"transparent", padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
   liveParsedChipBudget: { color:DOVE_BLUE, background:"rgba(107,140,174,0.07)", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 },
   liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
-  liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300 },
-  quickStarts: { marginTop:"auto", paddingTop:20 },
-  quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 10px" },
-  quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"6px 14px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
+  liveParseHint: { fontSize:12, color:"#999", fontWeight:300, fontStyle:"italic" },
+  quickStarts: { marginTop:"auto", paddingTop:16 },
+  quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#444", background:"none", border:`1px solid #C0BAB2`, padding:"7px 16px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
+
+  // Inline trust — pulled close to input
+  inlineTrust: { display:"flex", alignItems:"center", gap:14, marginTop:14, flexWrap:"wrap" },
+  inlineTrustLabel: { fontSize:11, color:"#aaa", letterSpacing:"0.3px", fontFamily:"'Josefin Sans',sans-serif", flexShrink:0 },
+  inlineTrustLogo: { fontSize:11, fontWeight:700, color:"#777", letterSpacing:"1px", textTransform:"uppercase" },
   heroRight: { flex:"0 0 46%", position:"relative" },
   heroDarkPanel: { position:"absolute", inset:0, background:PANEL_BG, padding:"44px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
   heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.3)", margin:"0 0 16px" },
@@ -1080,14 +1093,14 @@ const styles = {
   heroPanelDivider: { height:1, background:"rgba(255,255,255,0.08)", margin:"0 0 28px" },
   heroPanelPills: { display:"flex", flexDirection:"column", gap:16, marginBottom:36 },
   heroPanelPillRow: { display:"flex", alignItems:"flex-start", gap:10 },
-  heroPanelPillLabel: { fontSize:13, color:"rgba(255,255,255,0.75)", fontWeight:400, margin:"0 0 2px" },
-  heroPanelPillSub: { fontSize:11, color:"rgba(255,255,255,0.35)", fontWeight:300, margin:0 },
+  heroPanelPillLabel: { fontSize:14, color:"rgba(255,255,255,0.85)", fontWeight:400, margin:"0 0 2px" },
+  heroPanelPillSub: { fontSize:13, color:"rgba(255,255,255,0.45)", fontWeight:300, margin:0 },
   heroPanelStats: { display:"flex", alignItems:"center", gap:24, paddingTop:28, borderTop:"1px solid rgba(255,255,255,0.07)" },
   statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:"#fff", margin:"0 0 3px" },
   statLabel: { fontSize:10, color:"rgba(255,255,255,0.35)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
-  trustBar: { borderTop:`1px solid ${BORDER}`, padding:"16px 52px", display:"flex", alignItems:"center", gap:24, flexWrap:"wrap", background:SURFACE },
-  trustLabel: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", flexShrink:0 },
-  trustLogo: { fontSize:11, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
+  trustBar: { borderTop:`1px solid ${BORDER}`, padding:"18px 52px", display:"flex", alignItems:"center", gap:28, flexWrap:"wrap", background:SURFACE },
+  trustLabel: { fontSize:12, color:"#888", letterSpacing:"0.3px", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif" },
+  trustLogo: { fontSize:12, fontWeight:700, color:"#666", letterSpacing:"1px", textTransform:"uppercase" },
 
   // Top bar
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
