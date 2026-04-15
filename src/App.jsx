@@ -10,7 +10,7 @@ const BORDER = "#E8E5DF";
 const DOVE_BLUE = "#6B8CAE";
 const GREEN = "#2C5F3A";
 const DARK = "#111111";
-const PANEL_BG = "#1E2B3A"; // Dark navy — less harsh than pure black
+const PANEL_BG = "#1E2B3A";
 const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","#F5F0E8","#EEF1F7","#F2EEF5"];
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
 
@@ -52,15 +52,12 @@ Always respond with valid JSON only:
   }
 }`;
 
-
-// Live parsing — pure client-side, no API call
-// Returns array of {label, type} where type = "audience"|"occasion"|"qty"|"budget"|"constraint"
+// ─── LIVE PARSING ─────────────────────────────────────────────────────────────
 function parseBrief(text) {
   if (!text || text.trim().length < 6) return null;
   const t = text.toLowerCase();
   const chips = [];
 
-  // Audience
   if (/senior|leadership|cxo|ceo|cfo|director|vp|banker|executive|management/.test(t))
     chips.push({ label:"Senior leadership", type:"audience" });
   else if (/employ|staff|team|workforce|junior/.test(t))
@@ -70,7 +67,6 @@ function parseBrief(text) {
   else if (/colleague|peer/.test(t))
     chips.push({ label:"Colleagues", type:"audience" });
 
-  // Occasion
   if (/diwali/.test(t)) chips.push({ label:"Diwali", type:"occasion" });
   else if (/new year|new-year/.test(t)) chips.push({ label:"New Year", type:"occasion" });
   else if (/wedding|favour|favor/.test(t)) chips.push({ label:"Wedding favours", type:"occasion" });
@@ -80,20 +76,14 @@ function parseBrief(text) {
   else if (/birthday/.test(t)) chips.push({ label:"Birthday", type:"occasion" });
   else if (/thank|appreciation/.test(t)) chips.push({ label:"Thank-you", type:"occasion" });
 
-  // Quantity — must be followed by a people/group word
   const qtyMatch = t.match(/\b(\d{1,4})\s*(people|persons?|gifts?|units?|recipients?|staff|employees?|colleagues?|bankers?|heads?|guests?)\b/);
   if (qtyMatch) chips.push({ label:`${qtyMatch[1]} guests`, type:"qty" });
 
-  // Budget — explicit patterns only, in priority order
   let budgetAmount = null;
   const budgetPatterns = [
-    // ₹5,000 or ₹5k or rs 3000
     /(?:₹|rs\.?\s*)\s*(\d[\d,]*)\s*(k)?\b/i,
-    // under/around/within/upto 3k or 3,000 or 3000
     /\b(?:under|around|approx|max|upto|up\s+to|within|about)\s+₹?\s*(\d[\d,]*)\s*(k)?\b/i,
-    // 3k/3000 each/per gift/per head/budget/per unit
     /\b(\d{1,6})\s*(k)?\s*(?:each|per\s+(?:gift|head|person|unit)|budget|\/head|\/gift)\b/i,
-    // "budget is 3000" or "budget of 3000"
     /\bbudget\s+(?:is|of|=)\s*₹?\s*(\d[\d,]*)\s*(k)?\b/i,
   ];
   for (const pattern of budgetPatterns) {
@@ -107,7 +97,6 @@ function parseBrief(text) {
   }
   if (budgetAmount) chips.push({ label:`₹${budgetAmount.toLocaleString("en-IN")}`, type:"budget" });
 
-  // Constraints — widen patterns to catch more natural language
   if (/no food|non.?edible|no edible|no consumable|nothing edible|not edible|no eatables?|no snack|no sweet|no mithai/.test(t))
     chips.push({ label:"Non-consumable", type:"constraint" });
   if (/non.?fragile|nothing fragile|no fragile|not fragile|courier.?safe|shippable/.test(t))
@@ -116,13 +105,11 @@ function parseBrief(text) {
   return chips.length > 0 ? chips : null;
 }
 
-// Backwards-compatible: return just labels for contextLine etc
 function parseBriefLabels(text) {
   const chips = parseBrief(text);
   return chips ? chips.map(c => c.label) : null;
 }
 
-// Emotional context line based on parsed brief
 function contextLine(chips) {
   if (!chips) return "Curated for exactly this brief.";
   const isSenior = chips.some(c => /senior|leadership/i.test(c));
@@ -130,7 +117,6 @@ function contextLine(chips) {
   const isWedding = chips.some(c => /wedding/i.test(c));
   const isOnboard = chips.some(c => /onboard/i.test(c));
   const isClient = chips.some(c => /client/i.test(c));
-
   if (isSenior && isDiwali) return "For senior teams where the gift reflects judgment, not just budget.";
   if (isWedding) return "For guests who remember the gesture, long after the day.";
   if (isSenior) return "For people who notice the difference between considered and generic.";
@@ -140,13 +126,8 @@ function contextLine(chips) {
   return "Curated for exactly this brief.";
 }
 
-// ─── PRODUCT LINE RULE ENGINE ─────────────────────────────────────────────
-// Generates brief-aware, varied one-line product positioning.
-// Structure: [Primary trait] + [Brief signal] + [Optional third clause]
-// Zero API cost. Deterministic per product+brief combination.
-
+// ─── PRODUCT LINE RULE ENGINE ─────────────────────────────────────────────────
 const TRAIT_MAP = {
-  // Category-first primary traits — most specific wins
   "Candles & Incense":      ["Ritual-use", "Ceremonial", "Ambient, non-consumable"],
   "Incense & Ritual":       ["Ceremonial", "Ritual-use", "Ambient, non-consumable"],
   "Marble & Stone":         ["Durable display piece", "Stone-crafted keepsake", "Material-led"],
@@ -163,10 +144,8 @@ const TRAIT_MAP = {
   "Lifestyle":              ["Lifestyle-led", "Considered daily-use", "Understated presence"],
 };
 
-// Tag-based trait fallbacks when no category match
 function pickTrait(tags, category) {
   if (TRAIT_MAP[category]) {
-    // Rotate through the category's traits using a hash of the category+tag combo
     const opts = TRAIT_MAP[category];
     const hash = (tags.join("").length + category.length) % opts.length;
     return opts[hash];
@@ -181,7 +160,6 @@ function pickTrait(tags, category) {
   return "Considered piece";
 }
 
-// Brief-signal phrases — what the product offers given THIS brief
 function pickBriefSignal(product, filters, chips, idx) {
   const tags = product._tags || [];
   const qty = filters?.qty || 1;
@@ -192,92 +170,47 @@ function pickBriefSignal(product, filters, chips, idx) {
   const isNonEdible = !product.edible && !tags.some(t => /edible|consumable|food|snack|beverage/.test(t));
   const hasNoFoodConstraint = chips?.some(c => c.type === "constraint" && /consumable|food/i.test(c.label));
   const underBudget = budget && price <= budget * 0.88;
-
   const signals = [];
-
-  // Non-consumable signal — only if brief asked for it
-  if (hasNoFoodConstraint && isNonEdible) {
-    signals.push(...["non-consumable", "keepsake-friendly", "non-consumable keepsake"]);
-  }
-
-  // Scale signals — vary based on index to avoid repetition
-  if (isLarge && isBulk) {
-    signals.push(...[
-      "suited for large guest lists",
-      "easy to distribute at scale",
-      "practical for bulk gifting",
-      "distributable at your scale",
-    ]);
-  } else if (isLarge) {
-    signals.push(...[
-      "suited for larger orders",
-      "works well at scale",
-    ]);
-  }
-
+  if (hasNoFoodConstraint && isNonEdible) signals.push(...["non-consumable", "keepsake-friendly", "non-consumable keepsake"]);
+  if (isLarge && isBulk) signals.push(...["suited for large guest lists","easy to distribute at scale","practical for bulk gifting","distributable at your scale"]);
+  else if (isLarge) signals.push(...["suited for larger orders","works well at scale"]);
   if (underBudget) signals.push("well within budget");
-
   if (signals.length === 0) return null;
-  // Use index to rotate and avoid adjacent repetition
   return signals[idx % signals.length];
 }
 
-// Optional third clause — signal about longevity/quality
 function pickSignal(tags, idx) {
-  const signals = [
-    "strong visual recall",
-    "made to be retained",
-    "lasting presence",
-    "high retention value",
-    "visually distinctive",
-    "endures beyond the occasion",
-  ];
-  // Only add if product warrants it
+  const signals = ["strong visual recall","made to be retained","lasting presence","high retention value","visually distinctive","endures beyond the occasion"];
   if (!tags.some(t => /keepsake|collectible|heritage|artisan|premium|luxury|handcraft/.test(t))) return null;
   return signals[idx % signals.length];
 }
 
-// Assembly — 3 template formats for variation
 function assembleLine(trait, briefSignal, signal, idx) {
   const parts = [trait, briefSignal, signal].filter(Boolean);
   if (parts.length === 0) return null;
   if (parts.length === 1) return parts[0] + ".";
-
   const templates = [
-    // Format A: comma-separated
     () => parts.join(", ") + ".",
-    // Format B: primary and secondary
     () => `${parts[0]} — ${parts.slice(1).join(", ")}.`,
-    // Format C: natural sentence
-    () => parts.length === 3
-      ? `${parts[0]}, ${parts[1]}, ${parts[2]}.`
-      : `${parts[0]}, ${parts[1]}.`,
+    () => parts.length === 3 ? `${parts[0]}, ${parts[1]}, ${parts[2]}.` : `${parts[0]}, ${parts[1]}.`,
   ];
-
   const safeIdx = isNaN(idx) ? 0 : Math.abs(Math.floor(idx));
   return templates[safeIdx % templates.length]();
 }
 
-// MAIN ENTRY POINT — call this per product
 function briefPositioningLine(product, filters, chips, idx = 0) {
   try {
     const tags = product._tags || [];
     const category = product.category || "";
-
-    // Ensure productIdx is always a valid integer for array indexing
     const idNum = parseInt(product.id, 10) || 0;
     const productIdx = (isNaN(idNum) ? 0 : idNum) + (isNaN(idx) ? 0 : idx);
-
     const trait = pickTrait(tags, category);
     const briefSignal = pickBriefSignal(product, filters, chips, productIdx);
     const signal = pickSignal(tags, productIdx + 1);
-
     return assembleLine(trait, briefSignal, signal, productIdx);
-  } catch(e) {
-    return null; // Never crash the render
-  }
+  } catch(e) { return null; }
 }
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
 
 function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
@@ -300,7 +233,7 @@ function Logo({ size = "md", onClick }) {
   const [rockSz, doveSz] = sizes[size] || sizes.md;
   const el = (
     <div style={{ display:"flex", alignItems:"baseline", gap:4 }}>
-      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:rockSz, fontWeight:700, letterSpacing: size==="xl"?10:4, textTransform:"uppercase", color:DARK, lineHeight:1 }}>Rock</span>
+      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:rockSz, fontWeight:700, letterSpacing:size==="xl"?10:4, textTransform:"uppercase", color:DARK, lineHeight:1 }}>Rock</span>
       <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:doveSz, fontStyle:"italic", color:DOVE_BLUE, fontWeight:400, letterSpacing:1, lineHeight:1 }}>Dove</span>
     </div>
   );
@@ -312,33 +245,26 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const productsRef = useRef([]);
-
   const [view, setView] = useState("home");
   const [brief, setBrief] = useState("");
-  const [liveChips, setLiveChips] = useState(null); // live parsed chips
+  const [liveChips, setLiveChips] = useState(null);
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState("Understanding your brief…");
-
   const [directions, setDirections] = useState([]);
   const [briefSummary, setBriefSummary] = useState("");
   const [lastFilters, setLastFilters] = useState(null);
   const [intakeHistory, setIntakeHistory] = useState([]);
-
   const [activeDirection, setActiveDirection] = useState(null);
   const [gridProducts, setGridProducts] = useState([]);
   const [sort, setSort] = useState("rec");
-
   const [hearted, setHearted] = useState(new Set());
   const heartedRef = useRef({});
   const [shortlistOpen, setShortlistOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
-
-  // Inline refinement state
-  const [refinedNote, setRefinedNote] = useState(""); // subtle AI response after chip click
+  const [refinedNote, setRefinedNote] = useState("");
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token") ||
@@ -347,13 +273,10 @@ export default function App() {
     else setNotFound(true);
   }, []);
 
-  // Live parse brief as user types
   useEffect(() => {
     const chips = parseBrief(brief);
     setLiveChips(chips ? chips.map(c => c.label) : null);
   }, [brief]);
-
-  // (Dove speaks through the layout, not through a popup)
 
   const loadSession = async (token) => {
     try {
@@ -419,23 +342,16 @@ export default function App() {
     setView("thinking");
     saveConvo("user", q);
     const allProducts = productsRef.current;
-
     try {
       setThinkingLabel("Understanding your brief…");
       const doveRes = await fetch(CATALOGUE_URL + "/dove-chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: q, conversation_history: intakeHistory, system_override: INTAKE_SYSTEM }),
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ message:q, conversation_history:intakeHistory, system_override:INTAKE_SYSTEM }),
       });
       const doveData = await doveRes.json();
       const newHistory = [...intakeHistory, { role:"user", content:q }, { role:"assistant", content:doveData.response }];
       setIntakeHistory(newHistory);
-
-      if (!doveData.is_gifting_query) {
-        setView("home");
-        setThinking(false);
-        return;
-      }
-
+      if (!doveData.is_gifting_query) { setView("home"); setThinking(false); return; }
       const filters = doveData.filters || {};
       if (doveData.filters) setLastFilters(doveData.filters);
       const qty = filters.qty || 1;
@@ -449,53 +365,43 @@ export default function App() {
         if (filters.exclude_fragile && p.fragile) return false;
         return true;
       }).map(p => ({
-        id: p.id, name: p.name||"", category: p.category||"",
-        description: (p.description||"").slice(0,130),
+        id:p.id, name:p.name||"", category:p.category||"",
+        description:(p.description||"").slice(0,130),
         whats_in_box: Array.isArray(p.whats_in_box) ? p.whats_in_box.join(", ").slice(0,80) : (p.whats_in_box||"").slice(0,80),
         price: priceAtQty(p.pricing_tiers, qty),
-        tier: p.tier||"",
-        tags: (p._tags||[]).join(", "),
+        tier:p.tier||"", tags:(p._tags||[]).join(", "),
       }));
 
       setThinkingLabel("Curating your shortlist…");
       const rankRes = await fetch(CATALOGUE_URL + "/dove-rank", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief: filters.query||q, budget, exclude_edible: filters.exclude_edible||false, exclude_fragile: filters.exclude_fragile||false, products: candidates }),
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ brief:filters.query||q, budget, exclude_edible:filters.exclude_edible||false, exclude_fragile:filters.exclude_fragile||false, products:candidates }),
       });
       const ranked = await rankRes.json();
       const idOrder = ranked.ranked_ids || [];
 
       setThinkingLabel("Creating editorial directions…");
-      const topCandidates = idOrder.slice(0, 45).map(id => candidates.find(c=>c.id===id)).filter(Boolean);
-
+      const topCandidates = idOrder.slice(0,45).map(id => candidates.find(c=>c.id===id)).filter(Boolean);
       const dirRes = await fetch(CATALOGUE_URL + "/dove-directions", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief: filters.query||q, budget, products: topCandidates }),
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ brief:filters.query||q, budget, products:topCandidates }),
       });
       const dirData = await dirRes.json();
 
       const productMap = {};
-      allProducts.forEach(p => { productMap[p.id] = { ...p, _price: priceAtQty(p.pricing_tiers, qty) }; });
+      allProducts.forEach(p => { productMap[p.id] = { ...p, _price:priceAtQty(p.pricing_tiers, qty) }; });
 
       const enrichedDirections = (dirData.directions||[]).map(d => {
         const prods = (d.product_ids||[]).map(id => productMap[id]).filter(Boolean);
         const prices = prods.map(p => p._price||0).filter(v => v > 0);
-        return {
-          ...d,
-          products: prods,
-          price_min: prices.length ? Math.min(...prices) : (d.price_min||0),
-          price_max: prices.length ? Math.max(...prices) : (d.price_max||0),
-        };
+        return { ...d, products:prods, price_min:prices.length?Math.min(...prices):(d.price_min||0), price_max:prices.length?Math.max(...prices):(d.price_max||0) };
       });
 
       setBriefSummary(ranked.summary || "");
       setDirections(enrichedDirections);
       saveConvo("assistant", ranked.summary||"");
       setView("directions");
-    } catch(e) {
-      console.error(e);
-      setView("home");
-    }
+    } catch(e) { console.error(e); setView("home"); }
     setThinking(false);
   };
 
@@ -530,7 +436,7 @@ export default function App() {
     } else {
       newHearted.add(p.id);
       heartedRef.current[p.id] = p;
-      supabase.from("rd_shortlists").insert([{ session_id: session.id, product_id: p.id }]);
+      supabase.from("rd_shortlists").insert([{ session_id:session.id, product_id:p.id }]);
       logEvent("shortlist_add", p.id);
       setShortlistOpen(true);
     }
@@ -546,7 +452,6 @@ export default function App() {
 
   const shortlistItems = [...hearted].map(id => heartedRef.current[id]).filter(Boolean);
   const totalEstimate = shortlistItems.reduce((s,p)=>s+(p._price||0),0);
-
   const sortedGrid = [...gridProducts].sort((a,b)=>{
     if (sort==="asc") return (a._price||0)-(b._price||0);
     if (sort==="desc") return (b._price||0)-(a._price||0);
@@ -555,8 +460,8 @@ export default function App() {
 
   const S = styles;
 
-  if (notFound) return <div style={S.fullCenter}><Logo size="xl" /><p style={S.muted}>This link is invalid or has expired.</p></div>;
-  if (!session) return <div style={S.fullCenter}><Logo size="xl" /><p style={S.muted}>Loading…</p></div>;
+  if (notFound) return <div style={S.fullCenter}><Logo size="xl"/><p style={S.muted}>This link is invalid or has expired.</p></div>;
+  if (!session) return <div style={S.fullCenter}><Logo size="xl"/><p style={S.muted}>Loading…</p></div>;
 
   if (view === "submitted") return (
     <div style={S.fullCenter}>
@@ -568,7 +473,7 @@ export default function App() {
       {shortlistItems.map(p=>(
         <div key={p.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:`1px solid ${BORDER}`, width:"100%", maxWidth:380 }}>
           <div style={{ width:44, height:54, background:p._bg||SURFACE, flexShrink:0, overflow:"hidden" }}>
-            {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />}
+            {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }}/>}
           </div>
           <div>
             <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:15, fontWeight:400, color:DARK, margin:"0 0 3px" }}>{p.name}</p>
@@ -579,9 +484,10 @@ export default function App() {
     </div>
   );
 
+  // ── Inline JSX variables (not components — avoids focus loss on re-render) ──
   const topBarJSX = (
     <div style={S.topBar}>
-      <Logo size="sm" onClick={() => setView("home")} />
+      <Logo size="sm" onClick={() => setView("home")}/>
       <div style={S.refineWrap}>
         <input
           style={S.refineInput}
@@ -615,13 +521,11 @@ export default function App() {
       </div>
       <div style={{ flex:1, overflowY:"auto" }}>
         {shortlistItems.length===0 ? (
-          <p style={{ padding:"28px 20px", fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#bbb", textAlign:"center", lineHeight:1.8, margin:0 }}>
-            Heart a gift to save it here
-          </p>
+          <p style={{ padding:"28px 20px", fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#bbb", textAlign:"center", lineHeight:1.8, margin:0 }}>Heart a gift to save it here</p>
         ) : shortlistItems.map(p=>(
           <div key={p.id} style={S.slRow}>
             <div style={{ width:40, height:48, background:p._bg||SURFACE, flexShrink:0, overflow:"hidden", cursor:"pointer" }} onClick={()=>setSelectedProduct({...p})}>
-              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}}/>}
             </div>
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontSize:12, fontWeight:500, color:DARK, margin:"0 0 2px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</p>
@@ -647,7 +551,6 @@ export default function App() {
     </div>
   ) : null;
 
-  // Inline refinement chips — two groups with hierarchy
   const REFINE_CHIPS = [
     { label:"Elevate",          group:"refine",     query:" more premium, ultra-luxury only",          note:"Shifted toward elevated, artisanal selections." },
     { label:"More distinctive", group:"refine",     query:" unique, rare, unexpected category",        note:"Shifted toward more distinctive, memorable pieces." },
@@ -660,12 +563,12 @@ export default function App() {
   return (
     <div style={{ ...S.app, background:BG }}>
 
-      {/* HOME */}
+      {/* ── HOME ── */}
       {view === "home" && (
         <div style={S.homePage}>
           <div style={S.homeNav}>
             <div style={{ fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:DOVE_BLUE, fontWeight:600 }}>✦ AI-FIRST</div>
-            <Logo size="md" />
+            <Logo size="md"/>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <div style={S.av}>{initials(session.client_name)}</div>
               <div>
@@ -678,13 +581,9 @@ export default function App() {
           <div style={S.hero}>
             <div style={S.heroLeft}>
               <p style={S.homeTaglineLeft}>Gift Intelligence by Ikka Dukka</p>
-              <h1 style={S.heroH1}>
-                Tell me what you need.<br/>
-                <em style={{ color:DOVE_BLUE }}>I'll take it from there.</em>
-              </h1>
+              <h1 style={S.heroH1}>Tell me what you need.<br/><em style={{ color:DOVE_BLUE }}>I'll take it from there.</em></h1>
               <p style={S.heroSub}>Describe your brief in one line. Include occasion, recipients, quantity and budget.</p>
 
-              {/* 4-dimension guide — what makes a good brief */}
               <div style={S.briefGuideRow}>
                 {[
                   { label:"Occasion", eg:"Diwali · onboarding · wedding" },
@@ -699,13 +598,12 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Input */}
               <div style={S.inputBox}>
                 <textarea
                   style={S.homeInput}
                   value={brief}
                   onChange={e => setBrief(e.target.value)}
-                  onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSearch(); }}}
+                  onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSearch(); }}}
                   placeholder="e.g. 50 senior bankers, Diwali, ₹3,000 each, nothing edible"
                   rows={2}
                   autoFocus
@@ -719,42 +617,32 @@ export default function App() {
                 </button>
               </div>
 
-              {/* LIVE PARSING */}
               <div style={S.liveParseRow}>
                 {(() => {
                   const parsed = parseBrief(brief);
-                  if (!parsed || parsed.length === 0) {
+                  if (!parsed || parsed.length === 0)
                     return <span style={S.liveParseHint}>Results appear in seconds · No form, no steps</span>;
-                  }
                   return (
                     <>
                       <span style={S.liveParseLabel}>Understood:</span>
                       {parsed.map((c,i) => (
-                        <span key={i} style={{
-                          ...S.liveParsedChip,
-                          ...(c.type==="budget" ? S.liveParsedChipBudget : {}),
-                          ...(c.type==="constraint" ? S.liveParsedChipConstraint : {}),
-                        }}>{c.label}</span>
+                        <span key={i} style={{ ...S.liveParsedChip, ...(c.type==="budget"?S.liveParsedChipBudget:{}), ...(c.type==="constraint"?S.liveParsedChipConstraint:{}) }}>{c.label}</span>
                       ))}
                     </>
                   );
                 })()}
               </div>
 
-              {/* Quick starts */}
               <div style={S.quickStarts}>
                 <p style={S.quickStartLabel}>Or try one of these</p>
                 <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
                   {QUICK_STARTS.map((q,i)=>(
-                    <button key={i} style={S.quickChip} onClick={() => handleSearch(q.label)}>
-                      {q.label} →
-                    </button>
+                    <button key={i} style={S.quickChip} onClick={() => handleSearch(q.label)}>{q.label} →</button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Right — dark editorial panel */}
             <div style={S.heroRight}>
               <div style={S.heroDarkPanel}>
                 <p style={S.heroPanelEyebrow}>Ikka Dukka</p>
@@ -788,20 +676,16 @@ export default function App() {
 
           <div style={S.trustBar}>
             <span style={S.trustLabel}>Trusted by teams at</span>
-            {TRUST_LOGOS.map((l,i)=>(
-              <span key={i} style={S.trustLogo}>{l}</span>
-            ))}
+            {TRUST_LOGOS.map((l,i)=><span key={i} style={S.trustLogo}>{l}</span>)}
           </div>
         </div>
       )}
 
-      {/* THINKING */}
+      {/* ── THINKING ── */}
       {view === "thinking" && (
         <div style={S.fullCenter}>
-          <Logo size="xl" />
-          <p style={{ fontFamily:"Georgia,serif", fontSize:19, fontStyle:"italic", fontWeight:300, color:"#888", marginTop:48, lineHeight:1.8 }}>
-            {thinkingLabel}
-          </p>
+          <Logo size="xl"/>
+          <p style={{ fontFamily:"Georgia,serif", fontSize:19, fontStyle:"italic", fontWeight:300, color:"#888", marginTop:48, lineHeight:1.8 }}>{thinkingLabel}</p>
           <div style={{ display:"flex", gap:6, marginTop:20 }}>
             <span className="td"></span>
             <span className="td" style={{ animationDelay:"0.2s" }}></span>
@@ -813,122 +697,84 @@ export default function App() {
         </div>
       )}
 
-      {/* DIRECTIONS */}
+      {/* ── DIRECTIONS ── */}
       {view === "directions" && (
         <div style={{ ...S.resultsPage, background:BG }}>
-          { topBarJSX }
+          {topBarJSX}
           <div style={{ flex:1, overflowY:"auto" }}>
             <div style={S.directionsWrap}>
               <div style={S.directionsHdr}>
                 <p style={S.directionsEyebrow}>YOUR BRIEF, UNDERSTOOD</p>
-
-                {/* Structured brief chips */}
                 {(() => {
                   const chips = parseBrief(brief);
                   if (!chips?.length) return null;
                   return (
                     <div style={S.briefChipsRow}>
                       {chips.map((c,i) => (
-                        <span key={i} style={{
-                          ...S.briefChip,
-                          ...(c.type === "budget" ? S.briefChipBudget : {}),
-                          ...(c.type === "constraint" ? S.briefChipConstraint : {}),
-                        }}>{c.label}</span>
+                        <span key={i} style={{ ...S.briefChip, ...(c.type==="budget"?S.briefChipBudget:{}), ...(c.type==="constraint"?S.briefChipConstraint:{}) }}>{c.label}</span>
                       ))}
                     </div>
                   );
                 })()}
-
-                <h2 style={S.directionsH2}>
-                  Three directions. <em style={{ color:DOVE_BLUE }}>All viable.</em>
-                </h2>
-
+                <h2 style={S.directionsH2}>Three directions. <em style={{ color:DOVE_BLUE }}>All viable.</em></h2>
                 {briefSummary && (
-                  <p style={S.directionsIntel}>
-                    <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
-                  </p>
+                  <p style={S.directionsIntel}><span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}</p>
                 )}
                 {brief && (
-                  <p style={S.directionsContext}>
-                    {contextLine(liveChips || parseBriefLabels(brief))}
-                  </p>
+                  <p style={S.directionsContext}>{contextLine(liveChips || parseBriefLabels(brief))}</p>
                 )}
-
-                {/* Decision confidence cue — slightly more present */}
-                <p style={S.confidenceCue}>
-                  All three fit your brief — choose based on tone.
-                </p>
-
-                {/* Refinement chips — two groups with visual hierarchy */}
+                <p style={S.confidenceCue}>All three fit your brief — choose based on tone.</p>
                 <div style={S.refineChipsRow}>
                   <span style={S.refineChipsLabel}>Refine:</span>
-                  {REFINE_CHIPS.filter(c => c.group === "refine").map((c,i) => (
+                  {REFINE_CHIPS.filter(c => c.group==="refine").map((c,i) => (
                     <button key={i} style={S.refineChipBtn}
-                      onClick={() => { const r = brief + c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>
-                      {c.label}
-                    </button>
+                      onClick={() => { const r=brief+c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>{c.label}</button>
                   ))}
                   <span style={{ ...S.refineChipsLabel, marginLeft:8 }}>Constraints:</span>
-                  {REFINE_CHIPS.filter(c => c.group === "constraint").map((c,i) => (
+                  {REFINE_CHIPS.filter(c => c.group==="constraint").map((c,i) => (
                     <button key={i} style={S.refineChipBtnMuted}
-                      onClick={() => { const r = brief + c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>
-                      {c.label}
-                    </button>
+                      onClick={() => { const r=brief+c.query; setBrief(r); setRefinedNote(c.note); handleSearch(r); }}>{c.label}</button>
                   ))}
                 </div>
                 {refinedNote && (
-                  <p style={S.refinedNote}>
-                    <span style={{ color:DOVE_BLUE, marginRight:6 }}>✦</span>{refinedNote}
-                  </p>
+                  <p style={S.refinedNote}><span style={{ color:DOVE_BLUE, marginRight:6 }}>✦</span>{refinedNote}</p>
                 )}
               </div>
 
               <div style={S.directionCards}>
                 {directions.map((d,i) => {
-                  // Derive micro-tags from product categories in this direction
-                  const cats = [...new Set((d.products||[]).map(p => p.category).filter(Boolean))].slice(0,3);
-                  const hasCraft = (d.products||[]).some(p => (p._tags||[]).some(t => t.includes("handcraft") || t.includes("artisan")));
-                  const hasIndia = (d.products||[]).some(p => (p._tags||[]).some(t => t.includes("made-in-india") || t.includes("indian")));
-                  const isNonEdible = !(d.products||[]).some(p => p.edible);
-                  const microTags = [
-                    ...cats.slice(0,2),
-                    hasCraft ? "Handmade" : null,
-                    hasIndia ? "India" : null,
-                    isNonEdible ? "Non-edible" : null,
-                  ].filter(Boolean).slice(0,4);
-
+                  const cats = [...new Set((d.products||[]).map(p=>p.category).filter(Boolean))].slice(0,2);
+                  const hasCraft = (d.products||[]).some(p=>(p._tags||[]).some(t=>t.includes("handcraft")||t.includes("artisan")));
+                  const hasIndia = (d.products||[]).some(p=>(p._tags||[]).some(t=>t.includes("made-in-india")));
+                  const microTags = [...cats, hasCraft?"Handmade":null, hasIndia?"India":null].filter(Boolean).slice(0,4);
                   return (
                     <div key={i} style={S.dirCard}>
                       <div style={S.dirCardImg}>
                         {(d.products||[]).slice(0,2).map((p,j) => (
                           <div key={j} style={{ ...S.dirCardThumb, background:p._bg||SURFACE }}>
-                            {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                            {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}}/>}
                           </div>
                         ))}
                       </div>
                       <div style={S.dirCardBody}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
                           <p style={{ ...S.dirCardNum, margin:0 }}>Direction {d.number}</p>
-                          {i === 0 && <span style={S.dirBadge}>Most chosen</span>}
-                          {i === 1 && <span style={S.dirBadge}>Well balanced</span>}
-                          {i === 2 && <span style={S.dirBadge}>Statement choice</span>}
+                          {i===0&&<span style={S.dirBadge}>Most chosen</span>}
+                          {i===1&&<span style={S.dirBadge}>Well balanced</span>}
+                          {i===2&&<span style={S.dirBadge}>Statement choice</span>}
                         </div>
                         <p style={S.dirCardName}>{d.name}</p>
                         <p style={S.dirCardTagline}>{d.tagline}</p>
                         <p style={S.dirCardDesc}>{d.description}</p>
-                        {microTags.length > 0 && (
-                          <p style={S.dirCardMicroTags}>{microTags.join(" · ")}</p>
-                        )}
+                        {microTags.length>0 && <p style={S.dirCardMicroTags}>{microTags.join(" · ")}</p>}
                         <p style={S.dirCardPrice}>
-                          {(d.price_min||0) === (d.price_max||0)
+                          {(d.price_min||0)===(d.price_max||0)
                             ? `₹${(d.price_min||0).toLocaleString("en-IN")}`
                             : `₹${(d.price_min||0).toLocaleString("en-IN")} – ₹${(d.price_max||0).toLocaleString("en-IN")}`}
                         </p>
                         <p style={S.dirCardCount}>{(d.products||[]).length} gifts in this edit</p>
                       </div>
-                      <button style={S.exploreBtn} onClick={() => exploreDirection(d)}>
-                        Explore this direction →
-                      </button>
+                      <button style={S.exploreBtn} onClick={() => exploreDirection(d)}>Explore this direction →</button>
                     </div>
                   );
                 })}
@@ -938,15 +784,14 @@ export default function App() {
         </div>
       )}
 
-      {/* GRID */}
+      {/* ── GRID ── */}
       {view === "grid" && (
         <div style={{ ...S.resultsPage, background:BG }}>
-          { topBarJSX }
+          {topBarJSX}
           <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
             <div style={{ flex:1, overflowY:"auto" }}>
               <div style={S.gridWrap}>
-                {/* Back link — slightly clearer */}
-                <div style={{ marginBottom:24 }}>
+                <div style={{ marginBottom:20 }}>
                   <button style={S.backLink} onClick={() => setView("directions")}>← Back to recommendations</button>
                 </div>
 
@@ -955,54 +800,37 @@ export default function App() {
                     <div style={{ flex:1 }}>
                       <p style={S.dirBannerName}>{activeDirection.name}</p>
                       <p style={S.dirBannerTagline}>{activeDirection.tagline}</p>
-
-                      {/* "Selected for" — supplement parser with lastFilters so budget + constraint never disappear */}
                       {(() => {
                         const parsed = parseBrief(brief) || [];
-                        // Ensure budget chip exists — fall back to lastFilters
-                        const hasBudget = parsed.some(c => c.type === "budget");
-                        if (!hasBudget && lastFilters?.budget) {
-                          parsed.push({ label:`₹${lastFilters.budget.toLocaleString("en-IN")}`, type:"budget" });
-                        }
-                        // Ensure constraint chip exists
-                        const hasConstraint = parsed.some(c => c.type === "constraint");
-                        if (!hasConstraint && lastFilters?.exclude_edible) {
-                          parsed.push({ label:"Non-consumable", type:"constraint" });
-                        }
-                        if (!hasConstraint && lastFilters?.exclude_fragile) {
-                          parsed.push({ label:"Non-fragile", type:"constraint" });
-                        }
+                        const hasBudget = parsed.some(c=>c.type==="budget");
+                        if (!hasBudget && lastFilters?.budget) parsed.push({ label:`₹${lastFilters.budget.toLocaleString("en-IN")}`, type:"budget" });
+                        const hasConstraint = parsed.some(c=>c.type==="constraint");
+                        if (!hasConstraint && lastFilters?.exclude_edible) parsed.push({ label:"Non-consumable", type:"constraint" });
+                        if (!hasConstraint && lastFilters?.exclude_fragile) parsed.push({ label:"Non-fragile", type:"constraint" });
                         if (!parsed.length) return null;
                         return (
-                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:10, flexWrap:"wrap" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" }}>
                             <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb" }}>Selected for:</span>
                             {parsed.map((c,i) => (
-                              <span key={i} style={{
-                                fontSize:11, color:"#666", background:SURFACE,
-                                border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
-                                ...(c.type==="budget" ? { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 } : {}),
-                                ...(c.type==="constraint" ? { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` } : {}),
+                              <span key={i} style={{ fontSize:11, color:"#666", background:SURFACE, border:`1px solid ${BORDER}`, padding:"2px 10px", fontWeight:400,
+                                ...(c.type==="budget"?{ color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 }:{}),
+                                ...(c.type==="constraint"?{ color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` }:{}),
                               }}>{c.label}</span>
                             ))}
                           </div>
                         );
                       })()}
-
-                      {/* Dove line — reuses briefSummary, keeps AI thread alive on grid page */}
                       {briefSummary && (
-                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#666", margin:"10px 0 0", lineHeight:1.6 }}>
+                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#666", margin:"8px 0 0", lineHeight:1.6 }}>
                           <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
                         </p>
                       )}
-
-                      {/* "Chosen for" — functional reasoning, balances the poetic tagline */}
                       {activeDirection.description && (
-                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"6px 0 0", lineHeight:1.6 }}>
+                        <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"5px 0 0", lineHeight:1.6 }}>
                           {activeDirection.description}
                         </p>
                       )}
                     </div>
-
                     <div style={{ display:"flex", gap:4, flexShrink:0, alignSelf:"flex-start" }}>
                       {[["rec","Best fit"],["asc","Price ↑"],["desc","Price ↓"]].map(([v,l])=>(
                         <button key={v} style={{ ...S.sortBtn, ...(sort===v?S.sortOn:{}) }} onClick={()=>setSort(v)}>{l}</button>
@@ -1011,31 +839,26 @@ export default function App() {
                   </div>
                 )}
 
-                <p style={{ fontSize:11, color:"#bbb", letterSpacing:"1px", textTransform:"uppercase", marginBottom:20 }}>
+                <p style={{ fontSize:11, color:"#bbb", letterSpacing:"1px", textTransform:"uppercase", marginBottom:16 }}>
                   {sortedGrid.length} gifts in this direction
                 </p>
 
-                {/* TOP 2 — elevated, "Best fit for your brief" */}
-                {sort === "rec" && sortedGrid.length >= 2 && (
+                {/* TOP 2 */}
+                {sort==="rec" && sortedGrid.length>=2 && (
                   <div style={S.topPicksRow}>
                     <p style={S.topPicksLabel}>Best fit for your brief</p>
                     <div style={S.topPicksGrid}>
                       {sortedGrid.slice(0,2).map((p,i) => {
                         const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i);
                         return (
-                          <div key={p.id} style={S.topCard}
-                            onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
+                          <div key={p.id} style={S.topCard} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                             <div style={{ ...S.topCardImg, background:p._bg||SURFACE }}>
-                              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                              {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain", padding:8 }} onError={e=>{e.target.style.display="none"}}/>}
                               <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
-                                onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
-                                {hearted.has(p.id)?"♥":"♡"}
-                              </button>
+                                onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>{hearted.has(p.id)?"♥":"♡"}</button>
                             </div>
                             <div style={S.topCardBody}>
-                              <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv), marginBottom:6 }}>
-                                {TIER_LABEL[p.tier]||p.tier}
-                              </span>
+                              <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv), marginBottom:4 }}>{TIER_LABEL[p.tier]||p.tier}</span>
                               <p style={S.topCardName}>{p.name||""}</p>
                               {posLine && <p style={S.topCardPos}>{posLine}</p>}
                               <p style={S.topCardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
@@ -1047,35 +870,31 @@ export default function App() {
                   </div>
                 )}
 
-                {/* REMAINING GRID — equal weight, no labels */}
-                {sort === "rec" && sortedGrid.length > 2 && (
-                  <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 16px" }}>
+                {/* REMAINING */}
+                {sort==="rec" && sortedGrid.length>2 && (
+                  <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 14px" }}>
                     More options aligned to your brief
                   </p>
                 )}
                 <div style={S.grid}>
-                  {(sort === "rec" ? sortedGrid.slice(2) : sortedGrid).map((p, i) => {
-                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i + 2);
+                  {(sort==="rec" ? sortedGrid.slice(2) : sortedGrid).map((p,i) => {
+                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i+2);
                     return (
                       <div key={p.id} style={S.card}>
                         <div style={{ ...S.cardImg, background:p._bg||SURFACE }}
                           onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                           {p.image_url ? (
-                            <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />
+                            <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}}/>
                           ) : (
                             <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
                               <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category}</span>
                             </div>
                           )}
                           <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
-                            onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>
-                            {hearted.has(p.id)?"♥":"♡"}
-                          </button>
+                            onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>{hearted.has(p.id)?"♥":"♡"}</button>
                         </div>
                         <div style={S.cardBody} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
-                          <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
-                            {TIER_LABEL[p.tier]||p.tier}
-                          </span>
+                          <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>{TIER_LABEL[p.tier]||p.tier}</span>
                           <p style={S.cardName}>{p.name||""}</p>
                           {posLine && <p style={S.cardPos}>{posLine}</p>}
                           <p style={S.cardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
@@ -1086,12 +905,12 @@ export default function App() {
                 </div>
               </div>
             </div>
-            { shortlistDrawerJSX }
+            {shortlistDrawerJSX}
           </div>
         </div>
       )}
 
-      {/* MODAL */}
+      {/* ── MODAL ── */}
       {selectedProduct?.id && (() => {
         const p = selectedProduct;
         const price = p._price || 0;
@@ -1099,134 +918,92 @@ export default function App() {
         const isHearted = hearted.has(p.id);
         const briefChips = parseBrief(brief);
         const budget = lastFilters?.budget || null;
-
-        // Client-side confidence cue generation — no API call
-        const cues = [];
-        if (budget && price <= budget) cues.push("Fits budget");
-        if (budget && price <= budget * 0.9) cues.push("Under budget");
         const tags = p._tags || [];
         const isNonEdible = !p.edible && !tags.some(t => /edible|consumable|food|snack|beverage/.test(t));
+        const cues = [];
+        if (budget && price <= budget) cues.push("Fits budget");
         if (isNonEdible) cues.push("Non-consumable");
         if (p.moq && parseInt(p.moq) <= 50) cues.push("Bulk-friendly");
         if (tags.some(t => /handcraft|artisan|hand-finish|handmade/.test(t))) cues.push("Handcrafted");
         if (tags.some(t => /made-in-india/.test(t))) cues.push("Made in India");
-        if (p.tier === "Gold") cues.push("Gold tier");
-
-        // Client-side Dove fit line — derived from brief + product
         const doveFitLine = (() => {
           const parts = [];
           if (budget && price <= budget) parts.push("within budget");
-          if (isNonEdible && briefChips?.some(c => c.type === "constraint")) parts.push("meets your non-consumable requirement");
+          if (isNonEdible && briefChips?.some(c=>c.type==="constraint")) parts.push("meets your non-consumable requirement");
           if (tags.some(t => /keepsake|collectible|heritage/.test(t))) parts.push("strong keepsake value");
           if (p.moq && parseInt(p.moq) <= 50) parts.push("distributable at your scale");
           if (tags.some(t => /artisan|handcraft/.test(t))) parts.push("artisan provenance");
-          if (parts.length === 0) return null;
+          if (parts.length===0) return null;
           return "A strong fit for this brief — " + parts.join(", ") + ".";
         })();
-
-        // "Also considered" — other products in same direction, exclude current
-        const alsoConsidered = gridProducts.filter(op => op.id !== p.id).slice(0, 4);
-
+        const alsoConsidered = gridProducts.filter(op=>op.id!==p.id).slice(0,4);
         return (
           <div style={S.modalOverlay} onClick={()=>setSelectedProduct(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
               <button style={S.modalClose} onClick={()=>setSelectedProduct(null)}>×</button>
               <div style={S.modalInner}>
-
-                {/* Left — image */}
                 <div style={S.modalImgWrap}>
                   {p.image_url ? (
-                    <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}} />
+                    <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}}/>
                   ) : (
                     <div style={{ width:"100%", height:"100%", background:p._bg||SURFACE, display:"flex", alignItems:"center", justifyContent:"center" }}>
                       <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category||""}</span>
                     </div>
                   )}
                 </div>
-
-                {/* Right — intelligence-first layout */}
                 <div style={S.modalContent}>
-
-                  {/* 1. Dove fit explanation */}
                   {doveFitLine && (
                     <div style={S.modalDoveLine}>
                       <span style={{ fontWeight:600, color:DOVE_BLUE, marginRight:6 }}>Dove:</span>
                       <span style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#555", lineHeight:1.6 }}>{doveFitLine}</span>
                     </div>
                   )}
-
-                  {/* 2. Selected for brief */}
                   {briefChips?.length > 0 && (
                     <div style={S.modalBriefRow}>
                       <span style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", flexShrink:0 }}>For:</span>
                       {briefChips.map((c,i) => (
-                        <span key={i} style={{
-                          fontSize:11, color:"#666", background:SURFACE, border:`1px solid ${BORDER}`, padding:"2px 8px",
-                          ...(c.type==="budget" ? { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 } : {}),
-                          ...(c.type==="constraint" ? { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` } : {}),
+                        <span key={i} style={{ fontSize:11, color:"#666", background:SURFACE, border:`1px solid ${BORDER}`, padding:"2px 8px",
+                          ...(c.type==="budget"?{ color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.35)`, fontWeight:600 }:{}),
+                          ...(c.type==="constraint"?{ color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.2)` }:{}),
                         }}>{c.label}</span>
                       ))}
                     </div>
                   )}
-
-                  {/* 3. Product identity */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", margin:"14px 0 4px" }}>
-                    <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>
-                      {TIER_LABEL[p.tier]||p.tier||""}
-                    </span>
+                    <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>{TIER_LABEL[p.tier]||p.tier||""}</span>
                     <button style={{ background:"none", border:"none", fontSize:24, color:isHearted?"#9B3A2A":"#ccc", cursor:"pointer", lineHeight:1 }}
                       onClick={()=>toggleHeart(p)}>{isHearted?"♥":"♡"}</button>
                   </div>
                   <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:24, fontWeight:400, color:DARK, lineHeight:1.25, margin:"0 0 3px" }}>{p.name||""}</p>
                   <p style={{ fontSize:10, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 12px" }}>{p.category||""}</p>
                   <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 14px" }}>₹{price.toLocaleString("en-IN")}</p>
-
-                  {/* 4. Confidence cues */}
-                  {cues.length > 0 && (
-                    <div style={S.modalCues}>
-                      {cues.slice(0,4).map((c,i) => (
-                        <span key={i} style={S.modalCue}>✓ {c}</span>
-                      ))}
-                    </div>
+                  {cues.length>0 && (
+                    <div style={S.modalCues}>{cues.slice(0,4).map((c,i)=><span key={i} style={S.modalCue}>✓ {c}</span>)}</div>
                   )}
-
-                  {/* 5. Description */}
-                  {p.description && (
-                    <p style={{ fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#555", lineHeight:1.8, margin:"14px 0" }}>{String(p.description)}</p>
-                  )}
-
-                  {/* 6. What's in the box */}
+                  {p.description && <p style={{ fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#555", lineHeight:1.8, margin:"14px 0" }}>{String(p.description)}</p>}
                   {boxContents && (
                     <div style={{ marginBottom:14, paddingBottom:14, borderBottom:`1px solid ${BORDER}` }}>
                       <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 6px" }}>What's in the box</p>
                       <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#555", lineHeight:1.7, margin:0 }}>{boxContents}</p>
                     </div>
                   )}
-
-                  {/* 7. Specs — compact grid */}
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 24px", marginBottom:18 }}>
                     {p.moq && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Min. Order</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{p.moq} units</p></div>}
                     {p.lead_time && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Lead Time</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{String(p.lead_time)}</p></div>}
                     {p.box_dimensions && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Dimensions</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{String(p.box_dimensions)}</p></div>}
                     {p.weight_grams && <div><p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 3px" }}>Weight</p><p style={{ fontSize:13, color:"#333", margin:0 }}>{p.weight_grams}g</p></div>}
                   </div>
-
-                  {/* 8. Save button — context-aware */}
-                  <button style={{ ...S.btnGreen, ...(isHearted?{background:"#9B3A2A",boxShadow:"0 4px 0 #e8b4a8"}:{}) }}
-                    onClick={()=>toggleHeart(p)}>
+                  <button style={{ ...S.btnGreen, ...(isHearted?{background:"#9B3A2A",boxShadow:"0 4px 0 #e8b4a8"}:{}) }} onClick={()=>toggleHeart(p)}>
                     {isHearted ? "♥  Saved for this brief" : "♡  Save to shortlist"}
                   </button>
-
-                  {/* 9. Also considered — horizontal strip */}
-                  {alsoConsidered.length > 0 && (
+                  {alsoConsidered.length>0 && (
                     <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${BORDER}` }}>
                       <p style={{ fontSize:9, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 10px" }}>Also in this direction</p>
                       <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
                         {alsoConsidered.map(op => (
-                          <div key={op.id} style={{ flexShrink:0, width:72, cursor:"pointer" }}
-                            onClick={() => setSelectedProduct({...op})}>
+                          <div key={op.id} style={{ flexShrink:0, width:72, cursor:"pointer" }} onClick={()=>setSelectedProduct({...op})}>
                             <div style={{ width:72, height:72, background:op._bg||SURFACE, overflow:"hidden", marginBottom:4 }}>
-                              {op.image_url && <img src={op.image_url} alt={op.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />}
+                              {op.image_url && <img src={op.image_url} alt={op.name||""} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}}/>}
                             </div>
                             <p style={{ fontSize:10, color:"#777", margin:"0 0 1px", lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:72 }}>{op.name}</p>
                             <p style={{ fontSize:10, color:"#aaa", margin:0 }}>₹{(op._price||0).toLocaleString("en-IN")}</p>
@@ -1235,7 +1012,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                 </div>
               </div>
             </div>
@@ -1252,6 +1028,7 @@ const styles = {
   muted: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#aaa", marginTop:24 },
   av: { width:36, height:36, borderRadius:"50%", background:"#7A90B0", fontSize:12, fontWeight:600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
 
+  // Home
   homePage: { minHeight:"100vh", display:"flex", flexDirection:"column" },
   homeNav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"18px 52px", borderBottom:`1px solid ${BORDER}` },
   homeTaglineLeft: { fontSize:10, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 18px", fontWeight:300 },
@@ -1259,32 +1036,22 @@ const styles = {
   heroLeft: { flex:"0 0 54%", padding:"44px 52px 36px", display:"flex", flexDirection:"column", justifyContent:"center" },
   heroH1: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:40, fontWeight:700, color:DARK, lineHeight:1.2, margin:"0 0 12px", letterSpacing:-0.5 },
   heroSub: { fontSize:14, fontWeight:300, color:"#777", margin:"0 0 24px", lineHeight:1.65 },
-
-  // 4-dimension brief guide
   briefGuideRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 32px", marginBottom:22, paddingBottom:20, borderBottom:`1px solid ${BORDER}` },
   briefGuideItem: { display:"flex", flexDirection:"column", gap:3 },
   briefGuideLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#777", margin:0 },
   briefGuideEg: { fontSize:12, fontWeight:300, color:"#bbb", margin:0 },
-
   inputBox: { display:"flex", alignItems:"flex-end", background:"#fff", border:`1px solid #D0CBC3`, boxShadow:"0 2px 20px rgba(0,0,0,0.06)", marginBottom:10 },
   homeInput: { flex:1, border:"none", outline:"none", resize:"none", padding:"16px 20px 12px", fontFamily:"Georgia,serif", fontSize:16, fontWeight:300, color:DARK, lineHeight:1.7, background:"transparent" },
   homeBtn: { width:52, height:52, background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, alignSelf:"flex-end" },
-
-  // LIVE PARSING ROW
   liveParseRow: { display:"flex", alignItems:"center", gap:8, minHeight:28, marginBottom:24, flexWrap:"wrap" },
   liveParseLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", flexShrink:0 },
   liveParsedChip: { fontSize:12, color:"#444", background:SURFACE, padding:"4px 12px", border:`1px solid ${BORDER}`, fontWeight:400 },
   liveParsedChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
   liveParsedChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
   liveParseHint: { fontSize:12, color:"#bbb", fontWeight:300 },
-
-  briefChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
-  briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
-
   quickStarts: { marginTop:"auto", paddingTop:20 },
   quickStartLabel: { fontSize:9, fontWeight:600, letterSpacing:"2.5px", color:"#ccc", margin:"0 0 10px" },
   quickChip: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#777", background:"none", border:`1px solid ${BORDER}`, padding:"6px 14px", cursor:"pointer", lineHeight:1.4, whiteSpace:"nowrap" },
-
   heroRight: { flex:"0 0 46%", position:"relative" },
   heroDarkPanel: { position:"absolute", inset:0, background:PANEL_BG, padding:"44px 44px", display:"flex", flexDirection:"column", justifyContent:"center" },
   heroPanelEyebrow: { fontSize:11, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"rgba(255,255,255,0.3)", margin:"0 0 16px" },
@@ -1294,45 +1061,41 @@ const styles = {
   heroPanelPillRow: { display:"flex", alignItems:"flex-start", gap:10 },
   heroPanelPillLabel: { fontSize:13, color:"rgba(255,255,255,0.75)", fontWeight:400, margin:"0 0 2px" },
   heroPanelPillSub: { fontSize:11, color:"rgba(255,255,255,0.35)", fontWeight:300, margin:0 },
-  heroPanelPill: { fontSize:13, color:"rgba(255,255,255,0.5)", fontWeight:300 },
   heroPanelStats: { display:"flex", alignItems:"center", gap:24, paddingTop:28, borderTop:"1px solid rgba(255,255,255,0.07)" },
   statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:"#fff", margin:"0 0 3px" },
   statLabel: { fontSize:10, color:"rgba(255,255,255,0.35)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
-
   trustBar: { borderTop:`1px solid ${BORDER}`, padding:"16px 52px", display:"flex", alignItems:"center", gap:24, flexWrap:"wrap", background:SURFACE },
   trustLabel: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", flexShrink:0 },
   trustLogo: { fontSize:11, fontWeight:600, color:"#aaa", letterSpacing:"0.5px", textTransform:"uppercase" },
 
+  // Top bar
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
-  // Refine wrap — same premium feel as main input
   refineWrap: { flex:1, display:"flex", border:`1px solid #D8D4CE`, height:38, boxShadow:"0 1px 6px rgba(0,0,0,0.05)" },
   refineInput: { flex:1, border:"none", outline:"none", padding:"7px 14px", fontFamily:"Georgia,serif", fontSize:14, fontWeight:300, color:"#111", background:"transparent" },
   refineBtn: { padding:"0 18px", background:DOVE_BLUE, border:"none", cursor:"pointer", color:"#fff", fontSize:12, fontWeight:600, letterSpacing:"1px", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif", whiteSpace:"nowrap" },
   shortlistBtn: { background:GREEN, color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
 
+  // Results
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
-  directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"48px 32px" },
-  directionsHdr: { marginBottom:36 },
+  directionsWrap: { maxWidth:1100, margin:"0 auto", padding:"40px 32px" },
+  directionsHdr: { marginBottom:32 },
   directionsEyebrow: { fontSize:10, fontWeight:600, letterSpacing:"3px", textTransform:"uppercase", color:"#bbb", margin:"0 0 14px" },
-
-  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:22 },
+  briefChipsRow: { display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:20 },
   briefChip: { fontSize:12, color:"#555", background:SURFACE, border:`1px solid ${BORDER}`, padding:"4px 12px", fontWeight:400 },
   briefChipBudget: { color:DOVE_BLUE, background:"transparent", border:`1px solid rgba(107,140,174,0.4)`, fontWeight:600 },
   briefChipConstraint: { color:"#7A4A2A", background:"rgba(122,74,42,0.06)", border:`1px solid rgba(122,74,42,0.22)`, fontWeight:500 },
-
   directionsH2: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:34, fontWeight:700, color:DARK, margin:"0 0 10px", lineHeight:1.15 },
   directionsIntel: { fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#555", margin:"8px 0 6px", lineHeight:1.6 },
   directionsContext: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#888", margin:"0 0 10px", lineHeight:1.5 },
-  confidenceCue: { fontSize:12, color:"#888", letterSpacing:"0.3px", margin:"0 0 20px", fontWeight:400 },
-
-  refineChipsRow: { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:4 },
+  confidenceCue: { fontSize:12, color:"#888", letterSpacing:"0.3px", margin:"0 0 18px", fontWeight:400 },
+  refineChipsRow: { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" },
   refineChipsLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", flexShrink:0 },
   refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#333", background:"none", border:`1px solid #ccc`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4 },
   refineChipBtnMuted: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#999", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, marginLeft:4 },
   refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
 
+  // Direction cards
   dirBadge: { fontSize:9, fontWeight:400, letterSpacing:"1.5px", textTransform:"uppercase", color:"#999", border:"1px solid #e4e0da", padding:"2px 8px" },
-
   directionCards: { display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:24 },
   dirCard: { border:`1px solid ${BORDER}`, background:"#fff", display:"flex", flexDirection:"column", overflow:"hidden" },
   dirCardImg: { display:"flex", height:200, overflow:"hidden" },
@@ -1345,20 +1108,9 @@ const styles = {
   dirCardMicroTags: { fontSize:11, color:DOVE_BLUE, letterSpacing:"0.3px", margin:"0 0 10px", fontWeight:400 },
   dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:17, fontWeight:400, color:DARK, margin:"0 0 3px" },
   dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.3px", margin:0 },
-  // Blue explore button — not black
-  exploreBtn: { margin:"0 24px 24px", padding:"12px 0", background:DOVE_BLUE, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", boxShadow:`0 4px 0 rgba(107,140,174,0.3)` },
+  exploreBtn: { margin:"0 20px 20px", padding:"11px 0", background:DOVE_BLUE, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", boxShadow:`0 3px 0 rgba(107,140,174,0.3)` },
 
-  // Inline refinement chips
-  refineChipsRow: { display:"flex", alignItems:"center", gap:8, marginTop:20, flexWrap:"wrap" },
-  refineChipsLabel: { fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", flexShrink:0 },
-  refineChipBtn: { fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, fontStyle:"italic", color:"#555", background:"none", border:`1px solid ${BORDER}`, padding:"5px 14px", cursor:"pointer", lineHeight:1.4, transition:"all 0.15s" },
-  refinedNote: { fontFamily:"Georgia,serif", fontSize:13, fontStyle:"italic", fontWeight:300, color:DOVE_BLUE, margin:"12px 0 0", display:"flex", alignItems:"center" },
-  dirCardTagline: { fontFamily:"Georgia,serif", fontSize:14, fontStyle:"italic", fontWeight:300, color:"#666", margin:"0 0 10px", lineHeight:1.6 },
-  dirCardDesc: { fontSize:13, fontWeight:300, color:"#aaa", margin:"0 0 16px", lineHeight:1.5 },
-  dirCardPrice: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:18, fontWeight:400, color:DARK, margin:"0 0 4px" },
-  dirCardCount: { fontSize:11, color:"#bbb", letterSpacing:"0.5px", margin:0 },
-  exploreBtn: { margin:"0 24px 24px", padding:"12px 0", background:DARK, color:"#fff", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", fontSize:12, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase" },
-
+  // Grid
   gridWrap: { padding:"20px 28px" },
   backLink: { fontSize:12, color:"#aaa", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", letterSpacing:"0.5px", padding:0 },
   dirBanner: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, paddingBottom:16, borderBottom:`1px solid ${BORDER}` },
@@ -1368,18 +1120,18 @@ const styles = {
   sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}` },
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(190px, 1fr))", gap:"24px 14px" },
 
-  // Top 2 elevated picks — dove blue border, larger image
+  // Top 2 picks
   topPicksRow: { marginBottom:20 },
-  topPicksLabel: { fontSize:11, fontWeight:400, letterSpacing:"0.3px", color:"#888", margin:"0 0 10px", fontFamily:"Georgia,serif", fontStyle:"italic" },
+  topPicksLabel: { fontSize:11, fontWeight:400, color:"#888", margin:"0 0 10px", fontFamily:"Georgia,serif", fontStyle:"italic" },
   topPicksGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 },
   topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
-  topCardImg: { width:"100%", paddingBottom:"45%", position:"relative", overflow:"hidden" },
+  topCardImg: { width:"100%", height:200, position:"relative", overflow:"hidden", background:SURFACE },
   topCardBody: { padding:"10px 12px 12px" },
   topCardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:DARK, margin:"4px 0 3px", lineHeight:1.3 },
   topCardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#888", margin:"0 0 6px", lineHeight:1.4 },
   topCardPrice: { fontSize:14, fontWeight:600, color:DARK, margin:0 },
 
-  // Brief-aware positioning line on standard cards
+  // Standard cards
   cardPos: { fontFamily:"Georgia,serif", fontSize:11, fontWeight:300, fontStyle:"italic", color:"#aaa", margin:"0 0 4px", lineHeight:1.4 },
   card: { cursor:"pointer" },
   cardImg: { width:"100%", paddingBottom:"116%", position:"relative", overflow:"hidden" },
@@ -1390,9 +1142,9 @@ const styles = {
   tierPlat: { color:"#2a4a7a", background:"#eef3fa", border:"1px solid #b8cce8" },
   tierSilv: { color:"#666", background:"#f5f5f5", border:"1px solid #e0e0e0" },
   cardName: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:16, fontWeight:400, color:DARK, margin:"0 0 3px", lineHeight:1.3 },
-  cardCat: { fontSize:10, letterSpacing:"1.5px", textTransform:"uppercase", color:"#bbb", margin:"0 0 7px" },
   cardPrice: { fontSize:14, fontWeight:600, color:DARK, margin:0 },
 
+  // Shortlist drawer
   drawer: { width:272, background:"#fff", borderLeft:`1px solid ${BORDER}`, display:"flex", flexDirection:"column", flexShrink:0 },
   drawerHdr: { padding:"16px 20px 14px", borderBottom:`1px solid ${BORDER}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
   drawerTitle: { fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DARK, margin:0 },
@@ -1400,22 +1152,17 @@ const styles = {
   drawerFtr: { padding:18, borderTop:`1px solid ${BORDER}`, flexShrink:0 },
   btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
 
-  doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0 },
-
+  // Modal
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:860, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
   modalInner: { display:"flex", flex:1, overflow:"hidden" },
   modalImgWrap: { width:340, minWidth:340, flexShrink:0, background:SURFACE, overflow:"hidden" },
   modalContent: { flex:1, padding:"24px 26px", overflowY:"auto" },
-
-  // Dove fit line — intelligence-first
-  modalDoveLine: { background:"rgba(107,140,174,0.06)", border:`1px solid rgba(107,140,174,0.2)`, padding:"10px 14px", marginBottom:0, lineHeight:1.5, display:"flex", alignItems:"flex-start", gap:0 },
-
-  // Brief chips in modal
+  modalDoveLine: { background:"rgba(107,140,174,0.06)", border:`1px solid rgba(107,140,174,0.2)`, padding:"10px 14px", lineHeight:1.5, display:"flex", alignItems:"flex-start" },
   modalBriefRow: { display:"flex", alignItems:"center", gap:5, flexWrap:"wrap", marginTop:10, paddingBottom:10, borderBottom:`1px solid ${BORDER}` },
-
-  // Confidence cues
   modalCues: { display:"flex", gap:8, flexWrap:"wrap", margin:"0 0 4px" },
   modalCue: { fontSize:11, color:GREEN, fontWeight:500, letterSpacing:"0.3px" },
+
+  doveDot: { display:"inline-block", width:7, height:7, borderRadius:"50%", background:DOVE_BLUE, flexShrink:0 },
 };
