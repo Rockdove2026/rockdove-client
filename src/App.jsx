@@ -381,7 +381,7 @@ export default function App() {
       const idOrder = ranked.ranked_ids || [];
 
       setThinkingLabel("Creating editorial directions…");
-      const topCandidates = idOrder.slice(0,45).map(id => candidates.find(c=>c.id===id)).filter(Boolean);
+      const topCandidates = idOrder.map(id => candidates.find(c=>c.id===id)).filter(Boolean);
       const dirRes = await fetch(CATALOGUE_URL + "/dove-directions", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ brief:filters.query||q, budget, products:topCandidates }),
@@ -843,12 +843,12 @@ export default function App() {
                   {sortedGrid.length} gifts in this direction
                 </p>
 
-                {/* TOP 2 */}
+                {/* TOP 4 */}
                 {sort==="rec" && sortedGrid.length>=2 && (
                   <div style={S.topPicksRow}>
                     <p style={S.topPicksLabel}>Best fit for your brief</p>
                     <div style={S.topPicksGrid}>
-                      {sortedGrid.slice(0,2).map((p,i) => {
+                      {sortedGrid.slice(0,4).map((p,i) => {
                         const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i);
                         return (
                           <div key={p.id} style={S.topCard} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
@@ -871,14 +871,14 @@ export default function App() {
                 )}
 
                 {/* REMAINING */}
-                {sort==="rec" && sortedGrid.length>2 && (
+                {sort==="rec" && sortedGrid.length>4 && (
                   <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#ccc", margin:"0 0 14px" }}>
                     More options aligned to your brief
                   </p>
                 )}
                 <div style={S.grid}>
-                  {(sort==="rec" ? sortedGrid.slice(2) : sortedGrid).map((p,i) => {
-                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i+2);
+                  {(sort==="rec" ? sortedGrid.slice(4) : sortedGrid).map((p,i) => {
+                    const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i+4);
                     return (
                       <div key={p.id} style={S.card}>
                         <div style={{ ...S.cardImg, background:p._bg||SURFACE }}
