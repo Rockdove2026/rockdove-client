@@ -904,7 +904,7 @@ Always respond with valid JSON only:
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:16 }}>
                       {(() => {
                         const budget = lastFilters?.budget || null;
-                        let pool = sortedGrid.slice(0, 8);
+                        let pool = sortedGrid.slice(0, 16);
                         if (budget) {
                           pool = [...pool].sort((a, b) => {
                             const aDist = Math.abs(budget - (a._price || 0));
@@ -912,7 +912,20 @@ Always respond with valid JSON only:
                             return aDist - bDist;
                           });
                         }
-                        return pool.slice(0, 4).map((p, i) => {
+                        // Deduplicate by category — max 1 per category in top 4
+                        const usedCategories = new Set();
+                        const diversePicks = [];
+                        for (const p of pool) {
+                          const cat = (p.category || "other").toLowerCase();
+                          if (!usedCategories.has(cat)) {
+                            usedCategories.add(cat);
+                            diversePicks.push(p);
+                          }
+                          if (diversePicks.length === 4) break;
+                        }
+                        // Fall back to pool if not enough diverse picks
+                        const top4 = diversePicks.length >= 2 ? diversePicks : pool.slice(0, 4);
+                        return top4.map((p, i) => {
                           const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i);
                           return (
                             <div key={p.id} style={S.topCard} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
