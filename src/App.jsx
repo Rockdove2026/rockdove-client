@@ -549,11 +549,24 @@ Always respond with valid JSON only:
 
   const shortlistItems = [...hearted].map(id => heartedRef.current[id]).filter(Boolean);
   const totalEstimate = shortlistItems.reduce((s,p)=>s+(p._price||0),0);
-  const sortedGrid = [...gridProducts].sort((a,b)=>{
-    if (sort==="asc") return (a._price||0)-(b._price||0);
-    if (sort==="desc") return (b._price||0)-(a._price||0);
-    return 0;
-  });
+  const sortedGrid = (() => {
+    const base = [...gridProducts].sort((a,b)=>{
+      if (sort==="asc") return (a._price||0)-(b._price||0);
+      if (sort==="desc") return (b._price||0)-(a._price||0);
+      return 0;
+    });
+    if (sort !== "rec") return base;
+    const categoryCounts = {};
+    const primary = [];
+    const overflow = [];
+    for (const p of base) {
+      const cat = (p.category || "other").toLowerCase();
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      if (categoryCounts[cat] <= 2) primary.push(p);
+      else overflow.push(p);
+    }
+    return [...primary, ...overflow];
+  })();
 
   const S = styles;
 
