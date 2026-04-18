@@ -978,7 +978,20 @@ Always respond with valid JSON only:
                   </p>
                 )}
                 <div style={S.grid}>
-                  {(sort==="rec" ? sortedGrid.slice(4) : sortedGrid).map((p,i) => {
+                  {(sort==="rec" ? (() => {
+                    const budget = lastFilters?.budget || null;
+                    let pool = sortedGrid.slice(0, 16);
+                    if (budget) pool = [...pool].sort((a,b) => Math.abs(budget-(a._price||0)) - Math.abs(budget-(b._price||0)));
+                    const usedCats = new Set();
+                    const picks = [];
+                    for (const p of pool) {
+                      const cat = (p.category||"other").toLowerCase();
+                      if (!usedCats.has(cat)) { usedCats.add(cat); picks.push(p); }
+                      if (picks.length === 4) break;
+                    }
+                    const pickIds = new Set(picks.map(p => p.id));
+                    return sortedGrid.filter(p => !pickIds.has(p.id));
+                  })() : sortedGrid).map((p,i) => {
                     const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i+4);
                     return (
                       <div key={p.id} style={S.card}>
