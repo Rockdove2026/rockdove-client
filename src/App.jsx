@@ -548,6 +548,31 @@ Always respond with valid JSON only:
   };
 
   const shortlistItems = [...hearted].map(id => heartedRef.current[id]).filter(Boolean);
+
+  // Calculate top 4 picks IDs so they can be excluded from the extended grid
+  const top4Ids = (() => {
+    const budget = lastFilters?.budget || null;
+    let pool = sortedGrid.slice(0, 16);
+    if (budget) {
+      pool = [...pool].sort((a, b) => {
+        const aDist = Math.abs(budget - (a._price || 0));
+        const bDist = Math.abs(budget - (b._price || 0));
+        return aDist - bDist;
+      });
+    }
+    const usedCategories = new Set();
+    const diversePicks = [];
+    for (const p of pool) {
+      const cat = (p.category || "other").toLowerCase();
+      if (!usedCategories.has(cat)) {
+        usedCategories.add(cat);
+        diversePicks.push(p);
+      }
+      if (diversePicks.length === 4) break;
+    }
+    const top4 = diversePicks.length >= 2 ? diversePicks : pool.slice(0, 4);
+    return new Set(top4.map(p => p.id));
+  })();
   const totalEstimate = shortlistItems.reduce((s,p)=>s+(p._price||0),0);
   const sortedGrid = (() => {
     const base = [...gridProducts].sort((a,b)=>{
@@ -977,7 +1002,7 @@ Always respond with valid JSON only:
                   </p>
                 )}
                 <div style={S.grid}>
-                  {(sort==="rec" ? sortedGrid.slice(4) : sortedGrid).map((p,i) => {
+                  {(sort==="rec" ? sortedGrid.filter(p => !top4Ids.has(p.id)) : sortedGrid).map((p,i) => {
                     const posLine = briefPositioningLine(p, lastFilters, parseBrief(brief), i+4);
                     return (
                       <div key={p.id} style={S.card}>
