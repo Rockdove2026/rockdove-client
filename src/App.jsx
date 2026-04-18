@@ -556,16 +556,26 @@ Always respond with valid JSON only:
       return 0;
     });
     if (sort !== "rec") return base;
-    const categoryCounts = {};
-    const primary = [];
-    const overflow = [];
+    // Round-robin interleave by category — one from each category at a time
+    const byCategory = {};
     for (const p of base) {
       const cat = (p.category || "other").toLowerCase();
-      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-      if (categoryCounts[cat] <= 2) primary.push(p);
-      else overflow.push(p);
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(p);
     }
-    return [...primary, ...overflow];
+    const categories = Object.keys(byCategory);
+    const result = [];
+    let added = true;
+    while (added) {
+      added = false;
+      for (const cat of categories) {
+        if (byCategory[cat].length > 0) {
+          result.push(byCategory[cat].shift());
+          added = true;
+        }
+      }
+    }
+    return result;
   })();
 
   const S = styles;
