@@ -664,9 +664,9 @@ Always respond with valid JSON only:
 
   // Dove chat panel JSX — persistent right panel on the grid view
   const dovePanelJSX = (
-    <div style={{ width:272, flexShrink:0, borderLeft:`0.5px solid ${BORDER}`, display:"flex", flexDirection:"column", background:SURFACE }}>
+    <div style={{ width:272, flexShrink:0, borderLeft:`0.5px solid ${BORDER}`, display:"flex", flexDirection:"column", background:'#FAFAF8' }}>
       <div style={{ padding:"14px 16px 10px", borderBottom:`0.5px solid ${BORDER}`, flexShrink:0 }}>
-        <p style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", margin:0 }}>Dove — your gifting concierge</p>
+        <p style={{ fontSize:9, fontWeight:700, letterSpacing:"2.5px", textTransform:"uppercase", color:"#BBB", margin:0, fontFamily:"'Hanken Grotesk',sans-serif" }}>Dove — your gifting concierge</p>
       </div>
       <div ref={chatAreaRef} style={{ flex:1, overflowY:"auto", padding:"12px 16px", display:"flex", flexDirection:"column", gap:10 }}>
         {chatMessages.map((m,i) => (
@@ -692,7 +692,7 @@ Always respond with valid JSON only:
         {chatMessages.length > 0 && !chatLoading && (
           <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:4 }}>
             {REFINE_CHIPS.map((c,i) => (
-              <button key={i} style={{ fontSize:10, color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`0.5px solid rgba(107,140,174,0.3)`, padding:"3px 8px", cursor:"pointer", fontWeight:500 }}
+              <button key={i} style={{ fontSize:9, fontWeight:700, letterSpacing:"1px", textTransform:"uppercase", color:DOVE_BLUE, background:"rgba(107,140,174,0.08)", border:`0.5px solid rgba(107,140,174,0.25)`, padding:"4px 9px", cursor:"pointer" }}
                 onClick={() => { setChatInput(c.label); }}>
                 {c.label}
               </button>
@@ -808,7 +808,7 @@ Always respond with valid JSON only:
               {/* CTA */}
               <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20 }}>
                 <button
-                  style={{ background:DOVE_BLUE, color:"#fff", border:"none", padding:"13px 28px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:(!homeQty||!homeBudget)?"not-allowed":"pointer", opacity:(!homeQty||!homeBudget)?0.45:1 }}
+                  style={{ background:"#111", color:"#fff", border:"none", padding:"13px 28px", fontFamily:"'Hanken Grotesk',sans-serif", fontSize:10, fontWeight:700, letterSpacing:"2px", textTransform:"uppercase", cursor:(!homeQty||!homeBudget)?"not-allowed":"pointer", opacity:(!homeQty||!homeBudget)?0.45:1 }}
                   disabled={!homeQty || !homeBudget}
                   onClick={handleHomeSearch}
                 >
@@ -903,10 +903,10 @@ Always respond with valid JSON only:
                 {/* Brief chips row */}
                 <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:16, paddingBottom:14, borderBottom:`0.5px solid ${BORDER}` }}>
                   {homeSummaryChips().map((c,i) => (
-                    <span key={i} style={{ fontSize:11, padding:"3px 10px", border:`0.5px solid ${c.cls==="budget"?"rgba(107,140,174,0.4)":BORDER}`, color:c.cls==="budget"?DOVE_BLUE:"#555", background:c.cls==="budget"?"rgba(107,140,174,0.07)":"transparent", fontWeight:c.cls==="budget"?600:400 }}>{c.label}</span>
+                    <span key={i} style={{ fontSize:9, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", padding:"4px 12px", border:"none", background:c.cls==="budget"?"rgba(107,140,174,0.1)":"#F5F3F0", color:c.cls==="budget"?DOVE_BLUE:"#888" }}>{c.label}</span>
                   ))}
                   {briefSummary && (
-                    <span style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#666", fontStyle:"italic", marginLeft:4 }}>
+                    <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:11, fontWeight:400, color:"#888", fontStyle:"italic", marginLeft:4 }}>
                       <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
                     </span>
                   )}
@@ -917,14 +917,14 @@ Always respond with valid JSON only:
                   </div>
                 </div>
 
-                <p style={{ fontSize:12, color:"#888", letterSpacing:"1px", textTransform:"uppercase", marginBottom:16, fontFamily:"'Josefin Sans',sans-serif" }}>
+                <p style={{ fontSize:9, fontWeight:700, color:"#BBB", letterSpacing:"2px", textTransform:"uppercase", marginBottom:16, fontFamily:"'Hanken Grotesk',sans-serif" }}>
                   {sortedGrid.length} gifts matched
                 </p>
 
                 {/* Top 4 picks */}
                 {sort==="rec" && sortedGrid.length>=2 && (
                   <div style={{ marginBottom:24 }}>
-                    <p style={{ fontSize:13, fontWeight:400, color:"#666", margin:"0 0 12px", fontFamily:"Georgia,serif", fontStyle:"italic" }}>Dove's picks for this brief</p>
+                    <p style={{ fontSize:9, fontWeight:700, letterSpacing:"3px", textTransform:"uppercase", color:"#BBB", margin:"0 0 16px", fontFamily:"'Hanken Grotesk',sans-serif" }}>Dove's picks for this brief</p>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:16 }}>
                       {(() => {
                         const budget = lastFilters?.budget || null;
@@ -973,7 +973,7 @@ Always respond with valid JSON only:
                 )}
 
                 {sort==="rec" && sortedGrid.length>4 && (
-                  <p style={{ fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa", margin:"4px 0 14px", fontFamily:"'Josefin Sans',sans-serif" }}>
+                  <p style={{ fontSize:9, fontWeight:700, letterSpacing:"3px", textTransform:"uppercase", color:"#BBB", margin:"8px 0 16px", fontFamily:"'Hanken Grotesk',sans-serif" }}>
                     More options aligned to your brief
                   </p>
                 )}
@@ -1162,35 +1162,35 @@ const styles = {
   trustLabel: { fontSize:12, color:"#888", letterSpacing:"0.3px", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif" },
   trustLogo: { fontSize:12, fontWeight:700, color:"#666", letterSpacing:"1px", textTransform:"uppercase" },
   topBar: { display:"flex", alignItems:"center", gap:16, padding:"0 24px", height:56, borderBottom:`1px solid ${BORDER}`, flexShrink:0, background:"#fff" },
-  shortlistBtn: { background:GREEN, color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1px", cursor:"pointer", flexShrink:0, boxShadow:"0 3px 0 #a8d4b4" },
+  shortlistBtn: { background:GREEN, color:"#fff", border:"none", padding:"7px 14px", fontFamily:"'Hanken Grotesk',sans-serif", fontSize:9, fontWeight:700, letterSpacing:"2px", textTransform:"uppercase", cursor:"pointer", flexShrink:0 },
   resultsPage: { height:"100vh", display:"flex", flexDirection:"column", overflow:"hidden" },
   gridWrap: { padding:"20px 28px" },
-  sortBtn: { fontSize:12, color:"#888", background:"none", border:"none", cursor:"pointer", fontFamily:"'Josefin Sans',sans-serif", padding:"4px 10px" },
-  sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}`, fontWeight:600 },
+  sortBtn: { fontSize:9, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", color:"#BBB", background:"none", border:"none", cursor:"pointer", fontFamily:"'Hanken Grotesk',sans-serif", padding:"4px 12px" },
+  sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}`, fontWeight:700 },
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))", gap:"28px 20px" },
   topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
   topCardImg: { width:"100%", aspectRatio:"1", position:"relative", overflow:"hidden", background:SURFACE },
   topCardBody: { padding:"14px 14px 18px" },
-  topCardName: { fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:15, fontWeight:600, color:DARK, margin:"6px 0 5px", lineHeight:1.3, letterSpacing:"0.3px" },
-  topCardPos: { fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:400, color:"#888", margin:"0 0 8px", lineHeight:1.5 },
-  topCardPrice: { fontSize:15, fontWeight:700, color:DARK, margin:0, fontFamily:"'Josefin Sans',sans-serif" },
-  cardPos: { fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:11, fontWeight:400, color:"#888", margin:"0 0 6px", lineHeight:1.5 },
+  topCardName: { fontFamily:"'Hanken Grotesk','Josefin Sans',sans-serif", fontSize:11, fontWeight:700, color:DARK, margin:"6px 0 5px", lineHeight:1.4, letterSpacing:"0.5px", textTransform:"uppercase" },
+  topCardPos: { fontFamily:"'Hanken Grotesk',sans-serif", fontSize:10, fontWeight:400, color:"#AAA", margin:"0 0 8px", lineHeight:1.5 },
+  topCardPrice: { fontSize:12, fontWeight:700, color:DARK, margin:0, fontFamily:"'Hanken Grotesk',sans-serif", letterSpacing:"0.5px" },
+  cardPos: { fontFamily:"'Hanken Grotesk',sans-serif", fontSize:10, fontWeight:400, color:"#AAA", margin:"0 0 5px", lineHeight:1.4 },
   card: { cursor:"pointer" },
   cardImg: { width:"100%", paddingBottom:"116%", position:"relative", overflow:"hidden" },
   heartBtn: { position:"absolute", top:8, right:8, width:28, height:28, background:"rgba(255,255,255,0.9)", border:"none", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" },
   cardBody: { paddingTop:14, paddingBottom:4 },
-  tierBadge: { fontSize:10, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", display:"inline-block", padding:"3px 8px", marginBottom:8, fontFamily:"'Josefin Sans',sans-serif" },
-  tierGold: { color:"#7a5c20", background:"#fdf5e6", border:"1px solid #e8d5a0" },
-  tierPlat: { color:"#2a4a7a", background:"#eef3fa", border:"1px solid #b8cce8" },
-  tierSilv: { color:"#555", background:"#f5f5f5", border:"1px solid #d8d8d8" },
-  cardName: { fontFamily:"'Josefin Sans','Helvetica Neue',sans-serif", fontSize:14, fontWeight:600, color:DARK, margin:"0 0 5px", lineHeight:1.3, letterSpacing:"0.3px" },
-  cardPrice: { fontSize:14, fontWeight:700, color:DARK, margin:0, fontFamily:"'Josefin Sans',sans-serif" },
+  tierBadge: { fontSize:8, fontWeight:700, letterSpacing:"2px", textTransform:"uppercase", display:"inline-block", padding:"2px 0", marginBottom:6, fontFamily:"'Hanken Grotesk',sans-serif", background:"none", border:"none" },
+  tierGold: { color:"#9A7B35" },
+  tierPlat: { color:"#5A7AAA" },
+  tierSilv: { color:"#AAA" },
+  cardName: { fontFamily:"'Hanken Grotesk','Josefin Sans',sans-serif", fontSize:10, fontWeight:700, color:DARK, margin:"0 0 4px", lineHeight:1.4, letterSpacing:"0.5px", textTransform:"uppercase" },
+  cardPrice: { fontSize:11, fontWeight:700, color:DARK, margin:0, fontFamily:"'Hanken Grotesk',sans-serif", letterSpacing:"0.5px" },
   drawer: { width:272, background:"#fff", borderLeft:`1px solid ${BORDER}`, display:"flex", flexDirection:"column", flexShrink:0 },
   drawerHdr: { padding:"16px 20px 14px", borderBottom:`1px solid ${BORDER}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
   drawerTitle: { fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DARK, margin:0 },
   slRow: { display:"flex", alignItems:"center", gap:10, padding:"11px 18px", borderBottom:"1px solid #F5F0E8" },
   drawerFtr: { padding:18, borderTop:`1px solid ${BORDER}`, flexShrink:0 },
-  btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Josefin Sans',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", cursor:"pointer", boxShadow:"0 4px 0 #a8d4b4", display:"block" },
+  btnGreen: { width:"100%", background:GREEN, color:"#fff", border:"none", padding:14, fontFamily:"'Hanken Grotesk',sans-serif", fontSize:10, fontWeight:700, letterSpacing:"2px", textTransform:"uppercase", cursor:"pointer", display:"block" },
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, padding:32 },
   modalBox: { background:"#fff", width:"100%", maxWidth:860, maxHeight:"90vh", overflow:"hidden", position:"relative", display:"flex", flexDirection:"column" },
   modalClose: { position:"absolute", top:12, right:16, background:"none", border:"none", fontSize:28, color:"#aaa", cursor:"pointer", lineHeight:1, zIndex:10 },
