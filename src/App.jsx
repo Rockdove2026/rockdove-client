@@ -195,8 +195,8 @@ function Logo({ size = "md", onClick }) {
   const [rockSz, doveSz] = sizes[size] || sizes.md;
   const el = (
     <div style={{ display:"flex", alignItems:"baseline", gap:4 }}>
-      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:rockSz, fontWeight:700, letterSpacing:size==="xl"?10:4, textTransform:"uppercase", color:DARK, lineHeight:1 }}>Rock</span>
-      <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:doveSz, fontStyle:"italic", color:DOVE_BLUE, fontWeight:400, letterSpacing:1, lineHeight:1 }}>Dove</span>
+      <span style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:rockSz, fontWeight:700, letterSpacing:size==="xl"?10:4, textTransform:"uppercase", color:DARK, lineHeight:1 }}>Rock</span>
+      <span style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:doveSz, fontStyle:"italic", color:DOVE_BLUE, fontWeight:400, letterSpacing:1, lineHeight:1 }}>Dove</span>
     </div>
   );
   if (onClick) return <button onClick={onClick} style={{ background:"none", border:"none", cursor:"pointer", padding:0 }}>{el}</button>;
@@ -587,7 +587,7 @@ Always respond with valid JSON only:
   if (view === "submitted") return (
     <div style={S.fullCenter}>
       <div style={{ width:52, height:52, borderRadius:"50%", background:GREEN, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:24 }}>✓</div>
-      <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 10px" }}>Shortlist sent</p>
+      <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 10px" }}>Shortlist sent</p>
       <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#888", maxWidth:360, lineHeight:1.8, margin:"0 0 8px", textAlign:"center" }}>
         Thank you, {session.client_name.split(" ")[0]}. Nilisha's team will send a formal quote within 4 working hours.
       </p>
@@ -600,7 +600,7 @@ Always respond with valid JSON only:
             {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }}/>}
           </div>
           <div>
-            <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:15, fontWeight:400, color:DARK, margin:"0 0 3px" }}>{p.name}</p>
+            <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:15, fontWeight:400, color:DARK, margin:"0 0 3px" }}>{p.name}</p>
             <p style={{ fontSize:13, color:"#aaa", margin:0 }}>₹{(p._price||0).toLocaleString("en-IN")}</p>
           </div>
         </div>
@@ -649,7 +649,7 @@ Always respond with valid JSON only:
       <div style={S.drawerFtr}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:14, paddingBottom:14, borderBottom:"1px solid #f0ece4" }}>
           <span style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#aaa" }}>Total</span>
-          <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:20, fontWeight:400, color:DARK }}>
+          <span style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:20, fontWeight:400, color:DARK }}>
             {hearted.size===0?"—":`₹${totalEstimate.toLocaleString("en-IN")}`}
           </span>
         </div>
@@ -840,7 +840,7 @@ Always respond with valid JSON only:
             <div style={S.heroRight}>
               <div style={S.heroDarkPanel}>
                 <p style={S.heroPanelEyebrow}>Ikka Dukka</p>
-                <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:28, fontWeight:400, color:"#fff", lineHeight:1.25, margin:"0 0 20px" }}>
+                <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:28, fontWeight:400, color:"#fff", lineHeight:1.25, margin:"0 0 20px" }}>
                   Three questions.<br/><em style={{ color:"rgba(255,255,255,0.55)" }}>Then the right gifts.</em>
                 </p>
                 <div style={S.heroPanelDivider}></div>
@@ -906,7 +906,7 @@ Always respond with valid JSON only:
                     <span key={i} style={{ fontSize:9, fontWeight:600, letterSpacing:"1.5px", textTransform:"uppercase", padding:"4px 12px", border:"none", background:c.cls==="budget"?"rgba(107,140,174,0.1)":"#F5F3F0", color:c.cls==="budget"?DOVE_BLUE:"#888" }}>{c.label}</span>
                   ))}
                   {briefSummary && (
-                    <span style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:11, fontWeight:400, color:"#888", fontStyle:"italic", marginLeft:4 }}>
+                    <span style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:11, fontWeight:400, color:"#888", fontStyle:"italic", marginLeft:4 }}>
                       <span style={{ fontWeight:600, color:DOVE_BLUE }}>Dove:</span> {briefSummary}
                     </span>
                   )}
@@ -1090,9 +1090,9 @@ Always respond with valid JSON only:
                     <button style={{ background:"none", border:"none", fontSize:24, color:isHearted?"#9B3A2A":"#ccc", cursor:"pointer", lineHeight:1 }}
                       onClick={()=>toggleHeart(p)}>{isHearted?"♥":"♡"}</button>
                   </div>
-                  <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:24, fontWeight:400, color:DARK, lineHeight:1.25, margin:"0 0 3px" }}>{p.name||""}</p>
+                  <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:24, fontWeight:400, color:DARK, lineHeight:1.25, margin:"0 0 3px" }}>{p.name||""}</p>
                   <p style={{ fontSize:10, letterSpacing:"2px", textTransform:"uppercase", color:"#bbb", margin:"0 0 12px" }}>{p.category||""}</p>
-                  <p style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 14px" }}>₹{price.toLocaleString("en-IN")}</p>
+                  <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 14px" }}>₹{price.toLocaleString("en-IN")}</p>
                   {cues.length>0 && (
                     <div style={S.modalCues}>{cues.slice(0,4).map((c,i)=><span key={i} style={S.modalCue}>✓ {c}</span>)}</div>
                   )}
@@ -1156,7 +1156,7 @@ const styles = {
   heroPanelPillLabel: { fontSize:14, color:"rgba(255,255,255,0.85)", fontWeight:400, margin:"0 0 2px" },
   heroPanelPillSub: { fontSize:13, color:"rgba(255,255,255,0.45)", fontWeight:300, margin:0 },
   heroPanelStats: { display:"flex", alignItems:"center", gap:24, paddingTop:28, borderTop:"1px solid rgba(255,255,255,0.07)" },
-  statNum: { fontFamily:"'Playfair Display',Georgia,serif", fontSize:22, fontWeight:400, color:"#fff", margin:"0 0 3px" },
+  statNum: { fontFamily:"'PT Serif',Georgia,serif", fontSize:22, fontWeight:400, color:"#fff", margin:"0 0 3px" },
   statLabel: { fontSize:10, color:"rgba(255,255,255,0.35)", letterSpacing:"1px", textTransform:"uppercase", margin:0 },
   trustBar: { borderTop:`1px solid ${BORDER}`, padding:"18px 52px", display:"flex", alignItems:"center", gap:28, flexWrap:"wrap", background:SURFACE },
   trustLabel: { fontSize:12, color:"#888", letterSpacing:"0.3px", flexShrink:0, fontFamily:"'Josefin Sans',sans-serif" },
