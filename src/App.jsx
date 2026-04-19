@@ -586,7 +586,7 @@ Always respond with valid JSON only:
 
   if (view === "submitted") return (
     <div style={S.fullCenter}>
-      <div style={{ width:52, height:52, borderRadius:"50%", background:GREEN, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:24 }}>✓</div>
+      <div style={{ width:52, height:52, borderRadius:"50%", background:GREEN, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:18 }}>✓</div>
       <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 10px" }}>Shortlist sent</p>
       <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#888", maxWidth:360, lineHeight:1.8, margin:"0 0 8px", textAlign:"center" }}>
         Thank you, {session.client_name.split(" ")[0]}. Nilisha's team will send a formal quote within 4 working hours.
@@ -765,7 +765,7 @@ Always respond with valid JSON only:
                   <div style={{ flex:1, padding:"16px 18px" }}>
                     <label style={{ fontSize:10, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:"#888", display:"block", marginBottom:8 }}>Budget per gift</label>
                     <input
-                      type="number" min="200" placeholder="2,500"
+                      type="number" min="200" placeholder="2,500" step="100"
                       value={homeBudget}
                       onChange={e => setHomeBudget(e.target.value)}
                       style={{ width:"100%", border:"none", outline:"none", fontFamily:"Georgia,serif", fontSize:20, fontWeight:300, color:DARK, background:"transparent", padding:0 }}
@@ -954,14 +954,14 @@ Always respond with valid JSON only:
                           return (
                             <div key={p.id} style={S.topCard} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                               <div style={{ ...S.topCardImg, background:p._bg||SURFACE }}>
-                                {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain", padding:8 }} onError={e=>{e.target.style.display="none"}}/>}
+                                {p.image_url && <img src={p.image_url} alt={p.name||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}}/>}
                                 <button style={{ ...S.heartBtn, color:hearted.has(p.id)?"#9B3A2A":"#bbb" }}
                                   onClick={e=>{ e.stopPropagation(); toggleHeart(p); }}>{hearted.has(p.id)?"♥":"♡"}</button>
                               </div>
                               <div style={S.topCardBody}>
                                 <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv), marginBottom:4 }}>{TIER_LABEL[p.tier]||p.tier}</span>
                                 <p style={S.topCardName}>{p.name||""}</p>
-                                {posLine && <p style={S.topCardPos}>{posLine}</p>}
+      
                                 <p style={S.topCardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
                               </div>
                             </div>
@@ -1010,7 +1010,7 @@ Always respond with valid JSON only:
                         <div style={S.cardBody} onClick={()=>{ setSelectedProduct({...p}); logEvent("product_view",p.id); }}>
                           <span style={{ ...S.tierBadge, ...(p.tier==="Gold"?S.tierGold:p.tier==="Platinum"?S.tierPlat:S.tierSilv) }}>{TIER_LABEL[p.tier]||p.tier}</span>
                           <p style={S.cardName}>{p.name||""}</p>
-                          {posLine && <p style={S.cardPos}>{posLine}</p>}
+  
                           <p style={S.cardPrice}>₹{(p._price||0).toLocaleString("en-IN")}</p>
                         </div>
                       </div>
@@ -1063,7 +1063,7 @@ Always respond with valid JSON only:
               <div style={S.modalInner}>
                 <div style={S.modalImgWrap}>
                   {p.image_url ? (
-                    <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}}/>
+                    <img src={p.image_url} alt={p.name||""} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block", background:p._bg||SURFACE }} onError={e=>{e.target.style.display="none"}}/>
                   ) : (
                     <div style={{ width:"100%", height:"100%", background:p._bg||SURFACE, display:"flex", alignItems:"center", justifyContent:"center" }}>
                       <span style={{ fontSize:10, letterSpacing:"2px", color:"#bbb", textTransform:"uppercase" }}>{p.category||""}</span>
@@ -1169,11 +1169,11 @@ const styles = {
   sortOn: { color:DARK, borderBottom:`1.5px solid ${DARK}`, fontWeight:700 },
   grid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))", gap:"28px 20px" },
   topCard: { border:`1px solid #C0CFE0`, background:"#fff", cursor:"pointer", overflow:"hidden" },
-  topCardImg: { width:"100%", aspectRatio:"1", position:"relative", overflow:"hidden", background:SURFACE },
+  topCardImg: { width:"100%", aspectRatio:"4/3", position:"relative", overflow:"hidden", background:SURFACE },
   topCardBody: { padding:"14px 14px 18px" },
-  topCardName: { fontFamily:"'Hanken Grotesk','Josefin Sans',sans-serif", fontSize:11, fontWeight:700, color:DARK, margin:"6px 0 5px", lineHeight:1.4, letterSpacing:"0.5px", textTransform:"uppercase" },
+  topCardName: { fontFamily:"'Hanken Grotesk','Josefin Sans',sans-serif", fontSize:11, fontWeight:700, color:DARK, margin:"0 0 8px", lineHeight:1.4, letterSpacing:"0.5px", textTransform:"uppercase" },
   topCardPos: { fontFamily:"'Hanken Grotesk',sans-serif", fontSize:10, fontWeight:400, color:"#AAA", margin:"0 0 8px", lineHeight:1.5 },
-  topCardPrice: { fontSize:12, fontWeight:700, color:DARK, margin:0, fontFamily:"'Hanken Grotesk',sans-serif", letterSpacing:"0.5px" },
+  topCardPrice: { fontSize:11, fontWeight:500, color:"#888", margin:0, fontFamily:"'Hanken Grotesk',sans-serif", letterSpacing:"0.5px" },
   cardPos: { fontFamily:"'Hanken Grotesk',sans-serif", fontSize:10, fontWeight:400, color:"#AAA", margin:"0 0 5px", lineHeight:1.4 },
   card: { cursor:"pointer" },
   cardImg: { width:"100%", paddingBottom:"116%", position:"relative", overflow:"hidden" },
@@ -1183,8 +1183,8 @@ const styles = {
   tierGold: { color:"#9A7B35" },
   tierPlat: { color:"#5A7AAA" },
   tierSilv: { color:"#AAA" },
-  cardName: { fontFamily:"'Hanken Grotesk','Josefin Sans',sans-serif", fontSize:10, fontWeight:700, color:DARK, margin:"0 0 4px", lineHeight:1.4, letterSpacing:"0.5px", textTransform:"uppercase" },
-  cardPrice: { fontSize:11, fontWeight:700, color:DARK, margin:0, fontFamily:"'Hanken Grotesk',sans-serif", letterSpacing:"0.5px" },
+  cardName: { fontFamily:"'Hanken Grotesk','Josefin Sans',sans-serif", fontSize:10, fontWeight:700, color:DARK, margin:"0 0 6px", lineHeight:1.4, letterSpacing:"0.5px", textTransform:"uppercase" },
+  cardPrice: { fontSize:10, fontWeight:500, color:"#888", margin:0, fontFamily:"'Hanken Grotesk',sans-serif", letterSpacing:"0.5px" },
   drawer: { width:272, background:"#fff", borderLeft:`1px solid ${BORDER}`, display:"flex", flexDirection:"column", flexShrink:0 },
   drawerHdr: { padding:"16px 20px 14px", borderBottom:`1px solid ${BORDER}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 },
   drawerTitle: { fontSize:11, fontWeight:600, letterSpacing:"2px", textTransform:"uppercase", color:DARK, margin:0 },
