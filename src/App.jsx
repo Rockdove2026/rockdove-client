@@ -228,6 +228,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   const historyRef = useRef([]);
   const scrollRef = useRef(null);
   const startedRef = useRef(false);
+  const memoryRef = useRef(null);   // session-scoped client memory, sent on every /dove-converse turn
   const STORAGE_KEY = `rd_chat_${session?.token || session?.id || "anon"}`;
 
   // Persist the in-progress chat so a refresh / return-on-same-device restores it.
@@ -238,6 +239,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         messages: msgs,
         state: stateRef.current,
         history: historyRef.current,
+        memory: memoryRef.current,
         savedAt: Date.now(),
       }));
     } catch { /* storage unavailable - ignore */ }
@@ -269,6 +271,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
     if (saved && saved.messages.length > 0) {
       if (saved.state) stateRef.current = { ...stateRef.current, ...saved.state };
       if (Array.isArray(saved.history)) historyRef.current = saved.history;
+      if (saved.memory) memoryRef.current = saved.memory;
       setMessages(saved.messages);
       if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
       return;
@@ -285,7 +288,8 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         if (res.ok) {
           const mem = await res.json();
           if (mem && mem.returning && mem.greeting) {
-            // Seed the model's context so it can speak to the past brief.
+            // Keep the structured summary so every later turn can reference it.
+            memoryRef.current = mem.summary || null;
             historyRef.current = [{ role: "assistant", content: mem.greeting }];
             setMessages([{
               role: "dove",
@@ -346,7 +350,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       const res = await fetch(CATALOGUE_URL + "/dove-converse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: session.id, history: historyRef.current, candidates }),
+        body: JSON.stringify({ session_id: session.id, history: historyRef.current, candidates, memory: memoryRef.current || "" }),
       });
       if (!res.ok) throw new Error("status " + res.status);
       const data = await res.json();
