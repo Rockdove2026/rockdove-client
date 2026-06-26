@@ -413,17 +413,18 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     const price = priceAtQty(p.pricing_tiers, qtyNow);
                     const isH = hearted.has(p.id);
                     return (
-                      <div key={pid} style={{ border: `1px solid ${BORDER}`, background: "#fff", overflow: "hidden" }}>
+                      <div key={pid} style={{ border: `1px solid ${BORDER}`, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column" }}>
                         <div style={{ position: "relative", width: "100%", paddingBottom: "100%", background: p._bg || SURFACE }}>
                           {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
-                          <button onClick={() => toggleHeart({ ...p, _price: price })}
-                            style={{ position: "absolute", top: 6, right: 6, width: 26, height: 26, background: "rgba(255,255,255,0.9)", border: "none", fontSize: 12, cursor: "pointer", color: isH ? "#9B3A2A" : "#bbb" }}>
-                            {isH ? "\u2665" : "\u2661"}
-                          </button>
+                          {isH && <div style={{ position: "absolute", inset: 0, border: "2px solid #9B3A2A", pointerEvents: "none" }} />}
                         </div>
-                        <div style={{ padding: "10px 10px 12px" }}>
+                        <div style={{ padding: "10px 10px 12px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
                           <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.3px", textTransform: "uppercase", color: DARK, margin: "0 0 4px", lineHeight: 1.3 }}>{p.name}</p>
-                          <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 600, color: "#555", margin: 0 }}>Rs.{price.toLocaleString("en-IN")}</p>
+                          <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 600, color: "#555", margin: "0 0 10px" }}>Rs.{price.toLocaleString("en-IN")}</p>
+                          <button onClick={() => toggleHeart({ ...p, _price: price })}
+                            style={{ marginTop: "auto", width: "100%", padding: "9px 6px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer", border: isH ? "1px solid #9B3A2A" : `1px solid ${DARK}`, background: isH ? "#9B3A2A" : "#fff", color: isH ? "#fff" : DARK, transition: "all 0.12s" }}>
+                            {isH ? "\u2713 Saved" : "\u2661 Save"}
+                          </button>
                         </div>
                       </div>
                     );
