@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
 import SubmissionSummary from "./SubmissionSummary.jsx";
+import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters } from "./conversation_state.js";
+import { buildCandidates } from "./candidate_filter.js";
 
 const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
   "https://ikka-catalogue-service-production.up.railway.app";
@@ -215,11 +217,199 @@ const REFINE_CHIPS = [
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 
+// ── DOVE CHAT VIEW (?mode=chat) — conversational flow over /dove-converse ──────
+
+function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist, submitting, setHeadcount }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const stateRef = useRef(null);
+  if (stateRef.current === null) stateRef.current = createConversationState();
+  const historyRef = useRef([]);
+  const scrollRef = useRef(null);
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    const name = (session?.client_name || "").split(" ")[0] || "there";
+    setMessages([{
+      role: "dove",
+      text: `${getGreeting()}, ${name}. Tell me who these gifts are for and roughly your budget per gift — I'll pull a few options together.`,
+      chips: ["50 for Diwali, ~Rs.2,500 each", "One premium client gift", "New-joiner welcome kits"],
+    }]);
+  }, [session]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, loading]);
+
+  const productById = (id) => (productsRef.current || []).find(p => p.id === id);
+  const qtyNow = stateRef.current?.headcount || 1;
+
+  const send = async (textArg) => {
+    const text = (textArg ?? input).trim();
+    if (!text || loading) return;
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", text }]);
+    setLoading(true);
+
+    parseUserMessage(stateRef.current, text);
+    const filters = toCandidateFilters(stateRef.current);
+    const qty = stateRef.current.headcount || 1;
+
+    const all = (productsRef.current || []).map(p => {
+      const tags = [...(p._tags || [])];
+      if (p.edible) tags.push("edible");
+      if (p.fragile) tags.push("fragile");
+      return {
+        id: p.id,
+        name: p.name || "",
+        price: priceAtQty(p.pricing_tiers, qty),
+        weight_g: p.weight_grams || 0,
+        tags,
+        maker: p.brand || "",
+        short_desc: p.description || "",
+      };
+    });
+    const candidates = buildCandidates(all, filters, 40);
+
+    historyRef.current = [...historyRef.current, { role: "user", content: text }];
+
+    try {
+      const res = await fetch(CATALOGUE_URL + "/dove-converse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.id, history: historyRef.current, candidates }),
+      });
+      if (!res.ok) throw new Error("status " + res.status);
+      const data = await res.json();
+      mergeModelFilters(stateRef.current, data.filters || {});
+      if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
+      const msg = (data.message || "").trim() || "Tell me a little more — who are these for?";
+      historyRef.current = [...historyRef.current, { role: "assistant", content: msg }];
+      setMessages(prev => [...prev, {
+        role: "dove",
+        text: msg,
+        products: Array.isArray(data.show_products) ? data.show_products : [],
+        chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
+      }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "dove", text: "I'm just waking up — give me a moment and try that again.", chips: [] }]);
+    }
+    setLoading(false);
+  };
+
+  let lastDoveIdx = -1;
+  messages.forEach((m, i) => { if (m.role === "dove") lastDoveIdx = i; });
+
+  return (
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: SURFACE, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 20px", height: 56, borderBottom: `1px solid ${BORDER}`, flexShrink: 0, background: "#fff" }}>
+        <Logo size="sm" />
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", color: "#BBB", fontFamily: "'Hanken Grotesk',sans-serif" }}>Concierge</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {hearted.size > 0 && (
+            <button onClick={submitShortlist} disabled={submitting}
+              style={{ background: GREEN, color: "#fff", border: "none", padding: "8px 14px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", cursor: "pointer" }}>
+              {submitting ? "Sending..." : `\u2665 ${hearted.size} \u00b7 Send to Rock Dove`}
+            </button>
+          )}
+          <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#7A90B0", fontSize: 12, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>{initials(session.client_name)}</div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "24px 0" }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px", display: "flex", flexDirection: "column", gap: 18 }}>
+          {messages.map((m, i) => (
+            <div key={i}>
+              <div style={{ display: "flex", gap: 10, flexDirection: m.role === "dove" ? "row" : "row-reverse" }}>
+                {m.role === "dove" && (
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: DOVE_BLUE, fontSize: 10, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>D</div>
+                )}
+                <div style={{ maxWidth: "78%", padding: "10px 14px", fontFamily: "Georgia,serif", fontSize: 14, fontWeight: 300, lineHeight: 1.6, ...(m.role === "dove" ? { background: "#fff", border: `1px solid ${BORDER}`, borderRadius: "2px 12px 12px 12px", color: DARK } : { background: DOVE_BLUE, color: "#fff", borderRadius: "12px 2px 12px 12px" }) }}>
+                  {m.text}
+                </div>
+              </div>
+
+              {m.role === "dove" && m.products && m.products.length > 0 && (
+                <div style={{ marginLeft: 38, marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 14 }}>
+                  {m.products.map(pid => {
+                    const p = productById(pid);
+                    if (!p) return null;
+                    const price = priceAtQty(p.pricing_tiers, qtyNow);
+                    const isH = hearted.has(p.id);
+                    return (
+                      <div key={pid} style={{ border: `1px solid ${BORDER}`, background: "#fff", overflow: "hidden" }}>
+                        <div style={{ position: "relative", width: "100%", paddingBottom: "100%", background: p._bg || SURFACE }}>
+                          {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
+                          <button onClick={() => toggleHeart({ ...p, _price: price })}
+                            style={{ position: "absolute", top: 6, right: 6, width: 26, height: 26, background: "rgba(255,255,255,0.9)", border: "none", fontSize: 12, cursor: "pointer", color: isH ? "#9B3A2A" : "#bbb" }}>
+                            {isH ? "\u2665" : "\u2661"}
+                          </button>
+                        </div>
+                        <div style={{ padding: "10px 10px 12px" }}>
+                          <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.3px", textTransform: "uppercase", color: DARK, margin: "0 0 4px", lineHeight: 1.3 }}>{p.name}</p>
+                          <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 600, color: "#555", margin: 0 }}>Rs.{price.toLocaleString("en-IN")}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {m.role === "dove" && i === lastDoveIdx && m.chips && m.chips.length > 0 && !loading && (
+                <div style={{ marginLeft: 38, marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {m.chips.map((c, ci) => (
+                    <button key={ci} onClick={() => send(c)}
+                      style={{ fontSize: 11, fontFamily: "Georgia,serif", fontStyle: "italic", color: "#444", background: "none", border: "0.5px solid #C0BAB2", padding: "5px 12px", cursor: "pointer" }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {loading && (
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ width: 28, height: 28, borderRadius: "50%", background: DOVE_BLUE, fontSize: 10, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>D</div>
+              <div style={{ padding: "12px 14px", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: "2px 12px 12px 12px", display: "flex", gap: 4 }}>
+                {[0, 1, 2].map(d => <span key={d} className="td" style={{ animationDelay: `${d * 0.2}s` }}></span>)}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Input */}
+      <div style={{ borderTop: `1px solid ${BORDER}`, background: "#fff", flexShrink: 0 }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "12px 20px", display: "flex", gap: 8 }}>
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+            placeholder="Tell Dove what you need..."
+            style={{ flex: 1, border: `1px solid ${BORDER}`, outline: "none", padding: "11px 14px", fontFamily: "Georgia,serif", fontSize: 14, fontWeight: 300, background: "#fff", color: DARK }}
+          />
+          <button onClick={() => send()} disabled={loading}
+            style={{ width: 44, background: DOVE_BLUE, border: "none", color: "#fff", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>&rarr;</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const productsRef = useRef([]);
   const [view, setView] = useState("home");
+  const [chatMode] = useState(() => new URLSearchParams(window.location.search).get("mode") === "chat");
+  const [chatHeadcount, setChatHeadcount] = useState(null);
 
   // Home fields
   const [homeQty, setHomeQty] = useState("");
@@ -631,6 +821,7 @@ Always respond with valid JSON only:
       clientName={session.client_name}
       clientCompany={session.client_company}
       briefSummary={briefSummary}
+      headcount={chatHeadcount}
       items={shortlistItems.map(p => ({
         id: p.id,
         name: p.name,
@@ -640,6 +831,18 @@ Always respond with valid JSON only:
         bg: p._bg || null,
       }))}
       onRestart={() => setView("home")}
+    />
+  );
+
+  if (chatMode) return (
+    <ChatView
+      session={session}
+      productsRef={productsRef}
+      hearted={hearted}
+      toggleHeart={toggleHeart}
+      submitShortlist={submitShortlist}
+      submitting={submitting}
+      setHeadcount={setChatHeadcount}
     />
   );
 
