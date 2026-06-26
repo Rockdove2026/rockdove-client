@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
+import SubmissionSummary from "./SubmissionSummary.jsx";
 
 const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
   "https://ikka-catalogue-service-production.up.railway.app";
@@ -541,10 +542,51 @@ Always respond with valid JSON only:
   };
 
   const submitShortlist = async () => {
-    if (!session || hearted.size===0) return;
+    if (!session || hearted.size === 0) return;
     setSubmitting(true);
-    logEvent("shortlist_submit", null, { product_ids:[...hearted], count:hearted.size });
-    setTimeout(() => { setView("submitted"); setSubmitting(false); }, 800);
+
+    const items = [...hearted]
+      .map(id => heartedRef.current[id])
+      .filter(Boolean)
+      .map(p => ({ id: p.id, name: p.name, tier: p.tier || null, price: p._price || 0, image_url: p.image_url || null, bg: p._bg || null }));
+    const total = items.reduce((s, p) => s + (p.price || 0), 0);
+
+    logEvent("shortlist_submit", null, { product_ids: [...hearted], count: hearted.size });
+
+    // Generate the id on the client so we don't need to read the row back —
+    // the rd_submissions RLS allows anon INSERT but not SELECT.
+    const submissionId =
+      (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    // Durable record + WhatsApp notification — best-effort, must not block the UI.
+    try {
+      const { error } = await supabase
+        .from("rd_submissions")
+        .insert([{
+          id: submissionId,
+          session_id: session.id,
+          client_name: session.client_name || null,
+          client_company: session.client_company || null,
+          brief: brief || null,
+          brief_summary: briefSummary || null,
+          items,
+          total,
+        }]);
+      if (!error) {
+        supabase.functions
+          .invoke("notify-submission", { body: { submission_id: submissionId } })
+          .catch(() => {});
+      } else {
+        console.error("rd_submissions insert failed", error);
+      }
+    } catch (e) {
+      console.error("submission save failed", e);
+    }
+
+    setView("submitted");
+    setSubmitting(false);
   };
 
   const shortlistItems = [...hearted].map(id => heartedRef.current[id]).filter(Boolean);
@@ -585,27 +627,20 @@ Always respond with valid JSON only:
   if (!session) return <div style={S.fullCenter}><Logo size="xl"/><p style={S.muted}>Loading…</p></div>;
 
   if (view === "submitted") return (
-    <div style={S.fullCenter}>
-      <div style={{ width:52, height:52, borderRadius:"50%", background:GREEN, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:18 }}>✓</div>
-      <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:26, fontWeight:400, color:DARK, margin:"0 0 10px" }}>Shortlist sent</p>
-      <p style={{ fontFamily:"Georgia,serif", fontSize:15, fontWeight:300, color:"#888", maxWidth:360, lineHeight:1.8, margin:"0 0 8px", textAlign:"center" }}>
-        Thank you, {session.client_name.split(" ")[0]}. Nilisha's team will send a formal quote within 4 working hours.
-      </p>
-      <p style={{ fontFamily:"Georgia,serif", fontSize:13, fontWeight:300, color:"#aaa", maxWidth:360, lineHeight:1.8, margin:"0 0 28px", textAlign:"center" }}>
-        We'll be in touch at {session.contact_email || "your registered email"}.
-      </p>
-      {shortlistItems.map(p=>(
-        <div key={p.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 0", borderBottom:`1px solid ${BORDER}`, width:"100%", maxWidth:380 }}>
-          <div style={{ width:44, height:54, background:p._bg||SURFACE, flexShrink:0, overflow:"hidden" }}>
-            {p.image_url && <img src={p.image_url} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover" }}/>}
-          </div>
-          <div>
-            <p style={{ fontFamily:"'PT Serif',Georgia,serif", fontSize:15, fontWeight:400, color:DARK, margin:"0 0 3px" }}>{p.name}</p>
-            <p style={{ fontSize:13, color:"#aaa", margin:0 }}>₹{(p._price||0).toLocaleString("en-IN")}</p>
-          </div>
-        </div>
-      ))}
-    </div>
+    <SubmissionSummary
+      clientName={session.client_name}
+      clientCompany={session.client_company}
+      briefSummary={briefSummary}
+      items={shortlistItems.map(p => ({
+        id: p.id,
+        name: p.name,
+        tier: p.tier || null,
+        price: p._price || 0,
+        image_url: p.image_url || null,
+        bg: p._bg || null,
+      }))}
+      onRestart={() => setView("home")}
+    />
   );
 
   // ── Shared inline JSX ──────────────────────────────────────────
