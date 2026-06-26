@@ -228,21 +228,87 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   const historyRef = useRef([]);
   const scrollRef = useRef(null);
   const startedRef = useRef(false);
+  const STORAGE_KEY = `rd_chat_${session?.token || session?.id || "anon"}`;
+
+  // Persist the in-progress chat so a refresh / return-on-same-device restores it.
+  const persist = (msgs) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        v: 1,
+        messages: msgs,
+        state: stateRef.current,
+        history: historyRef.current,
+        savedAt: Date.now(),
+      }));
+    } catch { /* storage unavailable - ignore */ }
+  };
+  const loadPersisted = () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      // expire after 7 days so it doesn't resurface a stale chat much later
+      if (!data || !Array.isArray(data.messages) || (Date.now() - (data.savedAt || 0)) > 7 * 864e5) return null;
+      return data;
+    } catch { return null; }
+  };
 
   useEffect(() => {
-    if (startedRef.current) return;
+    if (startedRef.current || !session) return;
     startedRef.current = true;
     const name = (session?.client_name || "").split(" ")[0] || "there";
-    setMessages([{
+    const firstTimeChips = ["50 for Diwali, ~Rs.2,500 each", "One premium client gift", "New-joiner welcome kits"];
+    const firstTimeGreeting = {
       role: "dove",
       text: `${getGreeting()}, ${name}. Tell me who these gifts are for and roughly your budget per gift — I'll pull a few options together.`,
-      chips: ["50 for Diwali, ~Rs.2,500 each", "One premium client gift", "New-joiner welcome kits"],
-    }]);
+      chips: firstTimeChips,
+    };
+
+    // 1) Restore an in-progress chat from this device (survives refresh).
+    const saved = loadPersisted();
+    if (saved && saved.messages.length > 0) {
+      if (saved.state) stateRef.current = { ...stateRef.current, ...saved.state };
+      if (Array.isArray(saved.history)) historyRef.current = saved.history;
+      setMessages(saved.messages);
+      if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
+      return;
+    }
+
+    // 2) No live chat -> ask the backend for this session's past history (memory).
+    (async () => {
+      try {
+        const res = await fetch(CATALOGUE_URL + "/dove-memory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: session.id }),
+        });
+        if (res.ok) {
+          const mem = await res.json();
+          if (mem && mem.returning && mem.greeting) {
+            // Seed the model's context so it can speak to the past brief.
+            historyRef.current = [{ role: "assistant", content: mem.greeting }];
+            setMessages([{
+              role: "dove",
+              text: mem.greeting,
+              chips: ["Repeat last time", "Start something new", "Show me what I shortlisted"],
+            }]);
+            return;
+          }
+        }
+      } catch { /* fall through to first-time greeting */ }
+      // 3) First-time (or memory unavailable) -> normal opener.
+      setMessages([firstTimeGreeting]);
+    })();
   }, [session]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, loading]);
+
+  // Persist on every message change (after the opener has been set).
+  useEffect(() => {
+    if (startedRef.current && messages.length > 0) persist(messages);
+  }, [messages]);
 
   const productById = (id) => (productsRef.current || []).find(p => p.id === id);
   const qtyNow = stateRef.current?.headcount || 1;
