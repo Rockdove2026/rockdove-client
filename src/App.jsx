@@ -267,9 +267,15 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       chips: firstTimeChips,
     };
 
-    // 1) Restore an in-progress chat from this device (survives refresh).
+    // 1) Restore an in-progress chat from this device — but ONLY if it holds a REAL
+    // exchange (at least one user turn). A lone opening greeting must not be restored:
+    // persist() runs on every message change, so a device that merely showed a greeting
+    // once would cache it and, on return, restore it and skip the memory fetch below
+    // forever — the cross-device "it forgot my laptop chat" bug. With this guard, any
+    // device with no real local conversation falls through to /dove-memory and greets
+    // from this client's server-side history instead.
     const saved = loadPersisted();
-    if (saved && saved.messages.length > 0) {
+    if (saved && Array.isArray(saved.messages) && saved.messages.some(m => m.role === "user")) {
       if (saved.state) stateRef.current = { ...stateRef.current, ...saved.state };
       if (Array.isArray(saved.history)) historyRef.current = saved.history;
       if (saved.memory) memoryRef.current = saved.memory;
