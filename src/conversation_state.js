@@ -1,4 +1,4 @@
-// conversation_state.js  (v4 — headcount nouns: boxes/sets/pieces/etc.)
+// conversation_state.js  (v5 — single-gift resets inherited headcount)
 // ─────────────────────────────────────────────────────────────────────────────
 // The client-owned accumulator. Split ownership:
 //   • HARD constraints (budget, edible, fragile, weight) — client-owned. Parsed
@@ -60,6 +60,17 @@ export function parseUserMessage(state, text) {
   if (q) {
     const val = parseInt(q[1].replace(/,/g, ""), 10);
     if (val >= 1 && val <= 1000000) state.headcount = val;
+  }
+
+  // ── Single-gift signal — a one-off gift must NOT inherit an earlier event's
+  // headcount. After "50 for Diwali", "a single gift for a client's wedding"
+  // should price at qty 1, not 50. Only explicit singular phrasing resets it, so
+  // a per-head "one gift each for 100 clients" (headcount 100) is left untouched.
+  if (/\b(?:a\s+)?single\s+(?:gift|piece|item|present|hamper|box)\b/.test(t)
+      || /\bjust\s+one\b/.test(t)
+      || /\bonly\s+one\b/.test(t)
+      || /\bone[\s-]off\b/.test(t)) {
+    state.headcount = 1;
   }
 
   // ── Edible — negation wins on conflict ───────────────────────────────────
