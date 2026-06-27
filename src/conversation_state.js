@@ -1,4 +1,4 @@
-// conversation_state.js  (v5 — single-gift resets inherited headcount)
+// conversation_state.js  (v7 — model can correct BOTH stale headcount and budget)
 // ─────────────────────────────────────────────────────────────────────────────
 // The client-owned accumulator. Split ownership:
 //   • HARD constraints (budget, edible, fragile, weight) — client-owned. Parsed
@@ -117,10 +117,21 @@ export function parseUserMessage(state, text) {
 
 // Merge the model's advisory filters — never letting them DROP a hard constraint.
 export function mergeModelFilters(state, modelFilters = {}) {
-  if (state.budget_ceiling == null && typeof modelFilters.budget_ceiling === "number") {
+  // Budget: like headcount, trust the model's per-turn read of the CURRENT brief so a
+  // stale ceiling can be corrected. "13000 for a couple" doesn't match the budget regex
+  // (no Rs./budget marker), and an earlier "around Rs.2,500 each" would otherwise stay
+  // stuck and hide every premium piece. The model understands the new figure; let it
+  // raise or lower the ceiling. (One-turn lag: corrects the NEXT turn's candidates.)
+  if (typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) {
     state.budget_ceiling = modelFilters.budget_ceiling;
   }
-  if (state.headcount == null && typeof modelFilters.headcount === "number") {
+  // Headcount: trust the model's per-turn read of the CURRENT brief, even to LOWER a
+  // stale count. The model understands phrasing the regex can't enumerate ("a couple",
+  // "a gift for my friend", "just her") and, seeing the whole history, holds an event's
+  // count steady across turns - changing it only when the brief genuinely shifts (e.g.
+  // from a 100-gift event to a single wedding gift). This is what a one-way accumulator
+  // structurally couldn't do. (One-turn lag: it corrects the NEXT turn's pricing.)
+  if (typeof modelFilters.headcount === "number" && modelFilters.headcount >= 1) {
     state.headcount = modelFilters.headcount;
   }
   // Model TRUE may ADD a hard constraint; model FALSE is ignored (only the user's
