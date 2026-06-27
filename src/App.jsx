@@ -14,6 +14,27 @@ const DOVE_BLUE = "#6B8CAE";
 const GREEN = "#2C5F3A";
 const DARK = "#111111";
 
+// ── Rock Dove "Evergreen" skin (from Claude Design export) ────────────────────
+const RD = {
+  paper: "#f8f6f0", ink: "#1b3d2e", inkSoft: "#444444", inkMute: "#6b6b6b",
+  line: "#e7e7e4", surface: "#ffffff", wordmark: "#8FB9E0",
+  accent: "#4e9d6c",      // Dove identity
+  secondary: "#2e6fcb",   // client identity
+  bubble: "#fbfaf6", bubbleLine: "#e8e3d4",
+  serif: "'Source Serif 4', Georgia, serif",
+  sans: "'Nunito', sans-serif",
+};
+// per-card tint, rotated by position in the shown set
+const RD_PIECE = ["#2e6fcb", "#4e9d6c", "#6f9fd8"];
+const RD_PIECE_SOFT = ["#d4e1f3", "#d6e6dc", "#dde8f4"];
+// load Nunito + Source Serif 4 once
+if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
+  const l = document.createElement("link");
+  l.id = "rd-fonts"; l.rel = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap";
+  document.head.appendChild(l);
+}
+
 // Debug overlay: only when the URL carries ?debug=1. Never shows for real clients.
 const DEBUG_MODE = (() => {
   try { return new URLSearchParams(window.location.search).get("debug") === "1"; }
@@ -229,6 +250,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [detail, setDetail] = useState(null);  // gift-detail drawer
   const stateRef = useRef(null);
   if (stateRef.current === null) stateRef.current = createConversationState();
   const historyRef = useRef([]);
@@ -445,57 +467,75 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   messages.forEach((m, i) => { if (m.role === "dove") lastDoveIdx = i; });
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: SURFACE, fontFamily: "'Josefin Sans','Helvetica Neue',sans-serif" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: RD.paper, color: RD.ink, fontFamily: RD.sans }}>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 20px", height: 56, borderBottom: `1px solid ${BORDER}`, flexShrink: 0, background: "#fff" }}>
-        <Logo size="sm" />
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", color: "#BBB", fontFamily: "'Hanken Grotesk',sans-serif" }}>Concierge</span>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "0 28px", height: 64, borderBottom: `1px solid ${RD.line}`, flexShrink: 0, background: RD.paper }}>
+        <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "0.2em", color: RD.wordmark }}>ROCK DOVE</span>
+        <div style={{ width: 1, height: 22, background: RD.line }} />
+        <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase", color: RD.inkMute }} className="rd-sub">Private Concierge&nbsp;&nbsp;&middot;&nbsp;&nbsp;{session.company || "Rock Dove"}</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           {hearted.size > 0 && (
             <button onClick={submitShortlist} disabled={submitting}
-              style={{ background: GREEN, color: "#fff", border: "none", padding: "8px 14px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", cursor: "pointer" }}>
+              style={{ background: RD.accent, color: "#fff", border: "none", padding: "12px 22px", borderRadius: 999, fontFamily: RD.sans, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
               {submitting ? "Sending..." : `\u2665 ${hearted.size} \u00b7 Send to Rock Dove`}
             </button>
           )}
-          <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#7A90B0", fontSize: 12, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>{initials(session.client_name)}</div>
+          <div style={{ width: 34, height: 34, borderRadius: "50%", background: RD.secondary, fontSize: 12, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(session.client_name)}</div>
         </div>
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "24px 0" }}>
-        <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "40px 0 32px" }}>
+        <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 28px", display: "flex", flexDirection: "column", gap: 40 }}>
           {messages.map((m, i) => (
             <div key={i}>
-              <div style={{ display: "flex", gap: 10, flexDirection: m.role === "dove" ? "row" : "row-reverse" }}>
-                {m.role === "dove" && (
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: DOVE_BLUE, fontSize: 10, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>D</div>
-                )}
-                <div style={{ maxWidth: "78%", padding: "10px 14px", fontFamily: "Georgia,serif", fontSize: 14, fontWeight: 300, lineHeight: 1.6, ...(m.role === "dove" ? { background: "#fff", border: `1px solid ${BORDER}`, borderRadius: "2px 12px 12px 12px", color: DARK } : { background: DOVE_BLUE, color: "#fff", borderRadius: "12px 2px 12px 12px" }) }}>
-                  {m.text}
+              {m.role === "dove" ? (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+                    <span style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 999, background: RD.accent, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2.5 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: 999, background: "#fff" }} />
+                      <span style={{ width: 5, height: 5, borderRadius: 999, background: "#fff" }} />
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
+                  </div>
+                  <div style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.6, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap" }}>{m.text}</div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ marginLeft: "auto", maxWidth: 500, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.secondary }}>{(session.client_name || "You").split(" ")[0]}&nbsp;&nbsp;&middot;&nbsp;&nbsp;You</span>
+                    <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 999, background: RD.secondary }} />
+                  </div>
+                  <div style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 15, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                </div>
+              )}
 
               {m.role === "dove" && m.products && m.products.length > 0 && (
-                <div style={{ marginLeft: 38, marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 14 }}>
-                  {m.products.map(pid => {
+                <div style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
+                  {m.products.map((pid, ci) => {
                     const p = productById(pid);
                     if (!p) return null;
                     const price = priceAtQty(p.pricing_tiers, qtyNow);
                     const isH = hearted.has(p.id);
+                    const tint = RD_PIECE[ci % 3], tintSoft = RD_PIECE_SOFT[ci % 3];
                     return (
-                      <div key={pid} style={{ border: `1px solid ${BORDER}`, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                        <div style={{ position: "relative", width: "100%", paddingBottom: "100%", background: p._bg || SURFACE }}>
-                          {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
-                          {isH && <div style={{ position: "absolute", inset: 0, border: "2px solid #9B3A2A", pointerEvents: "none" }} />}
+                      <div key={pid} style={{ border: `1px solid ${RD.line}`, background: RD.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                        <div onClick={() => setDetail(p)} style={{ position: "relative", cursor: "pointer", height: 200, background: tintSoft }}>
+                          {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
+                          {p.tier && <span style={{ position: "absolute", top: 12, left: 12, fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fff", background: tint, padding: "5px 9px" }}>{p.tier}</span>}
                         </div>
-                        <div style={{ padding: "10px 10px 12px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
-                          <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.3px", textTransform: "uppercase", color: DARK, margin: "0 0 4px", lineHeight: 1.3 }}>{p.name}</p>
-                          <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 600, color: "#555", margin: "0 0 10px" }}>Rs.{price.toLocaleString("en-IN")}</p>
-                          <button onClick={() => toggleHeart({ ...p, _price: price })}
-                            style={{ marginTop: "auto", width: "100%", padding: "9px 6px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer", border: isH ? "1px solid #9B3A2A" : `1px solid ${DARK}`, background: isH ? "#9B3A2A" : "#fff", color: isH ? "#fff" : DARK, transition: "all 0.12s" }}>
-                            {isH ? "\u2713 Saved" : "\u2661 Save"}
-                          </button>
+                        <div style={{ padding: "16px 16px 18px", display: "flex", flexDirection: "column", flex: 1, borderTop: `1px solid ${RD.line}` }}>
+                          <div onClick={() => setDetail(p)} style={{ fontFamily: RD.serif, fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.18, cursor: "pointer", color: RD.ink }}>{p.name}</div>
+                          {p.brand && <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: RD.inkMute, marginTop: 7, lineHeight: 1.5 }}>{p.brand}</div>}
+                          <div style={{ flex: 1, minHeight: 14 }} />
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${RD.line}` }}>
+                            <span style={{ fontSize: 16, fontWeight: 600, whiteSpace: "nowrap", color: RD.ink }}>Rs.{price.toLocaleString("en-IN")}</span>
+                            <button onClick={() => toggleHeart({ ...p, _price: price })}
+                              style={{ border: isH ? `1px solid ${tint}` : `1px solid ${RD.ink}`, background: isH ? tint : "transparent", color: isH ? "#fff" : RD.ink, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 13px", cursor: "pointer" }}>
+                              {isH ? "\u2713 Saved" : "\u2661 Save"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -525,10 +565,10 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               )}
 
               {m.role === "dove" && i === lastDoveIdx && m.chips && m.chips.length > 0 && !loading && (
-                <div style={{ marginLeft: 38, marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ marginLeft: 41, marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {m.chips.map((c, ci) => (
                     <button key={ci} onClick={() => send(c)}
-                      style={{ fontSize: 11, fontFamily: "Georgia,serif", fontStyle: "italic", color: "#444", background: "none", border: "0.5px solid #C0BAB2", padding: "5px 12px", cursor: "pointer" }}>
+                      style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", color: RD.inkSoft, background: RD.surface, border: `1px solid ${RD.line}`, padding: "8px 14px", cursor: "pointer" }}>
                       {c}
                     </button>
                   ))}
@@ -538,9 +578,15 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           ))}
 
           {loading && (
-            <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: DOVE_BLUE, fontSize: 10, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>D</div>
-              <div style={{ padding: "12px 14px", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: "2px 12px 12px 12px", display: "flex", gap: 4 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+                <span style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 999, background: RD.accent, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2.5 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: "#fff" }} />
+                  <span style={{ width: 5, height: 5, borderRadius: 999, background: "#fff" }} />
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
+              </div>
+              <div style={{ paddingLeft: 41, display: "flex", gap: 4 }}>
                 {[0, 1, 2].map(d => <span key={d} className="td" style={{ animationDelay: `${d * 0.2}s` }}></span>)}
               </div>
             </div>
@@ -549,20 +595,101 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       </div>
 
       {/* Input */}
-      <div style={{ borderTop: `1px solid ${BORDER}`, background: "#fff", flexShrink: 0 }}>
-        <div style={{ maxWidth: 720, margin: "0 auto", padding: "12px 20px", display: "flex", gap: 8 }}>
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
-            placeholder="Tell Dove what you need..."
-            style={{ flex: 1, border: `1px solid ${BORDER}`, outline: "none", padding: "11px 14px", fontFamily: "Georgia,serif", fontSize: 14, fontWeight: 300, background: "#fff", color: DARK }}
-          />
-          <button onClick={() => send()} disabled={loading}
-            style={{ width: 44, background: DOVE_BLUE, border: "none", color: "#fff", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>&rarr;</button>
+      <div style={{ borderTop: `1px solid ${RD.line}`, background: RD.paper, flexShrink: 0 }}>
+        <div style={{ maxWidth: 760, margin: "0 auto", padding: "16px 28px" }}>
+          <div style={{ display: "flex", border: `1.5px solid ${RD.ink}`, background: RD.surface, borderRadius: 14, overflow: "hidden" }}>
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+              placeholder="Tell Dove about the occasion, the headcount, the budget per head\u2026"
+              style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 15, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
+            />
+            <button onClick={() => send()} disabled={loading}
+              style={{ width: 54, flexShrink: 0, border: "none", background: RD.secondary, color: "#fff", fontSize: 20, cursor: "pointer" }}>&rarr;</button>
+          </div>
         </div>
       </div>
+
+      {/* Gift-detail drawer */}
+      {detail && <ProductDetail product={detail} qty={qtyNow} hearted={hearted} toggleHeart={toggleHeart} onClose={() => setDetail(null)} />}
     </div>
+  );
+}
+
+// ── Gift-detail drawer (provenance preview) — real catalogue fields only ──────
+function ProductDetail({ product: p, qty, hearted, toggleHeart, onClose }) {
+  const isH = hearted.has(p.id);
+  const perHead = priceAtQty(p.pricing_tiers, qty);
+  const total = perHead * (qty || 1);
+  const priceLine = (qty && qty > 1)
+    ? `Rs.${perHead.toLocaleString("en-IN")} per head \u00b7 Rs.${total.toLocaleString("en-IN")} for ${qty}`
+    : `Rs.${perHead.toLocaleString("en-IN")}`;
+  const box = Array.isArray(p.whats_in_box) ? p.whats_in_box : (p.whats_in_box ? [p.whats_in_box] : []);
+  const specs = [];
+  if (p.brand) specs.push(["Maker", p.brand]);
+  if (p.tier) specs.push(["Tier", p.tier]);
+  if (p.weight_grams) specs.push(["Weight", `${p.weight_grams} g`]);
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(33,28,22,0.34)" }} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 51, width: "min(520px,100%)", background: RD.paper, borderLeft: `1px solid ${RD.ink}`, overflowY: "auto" }}>
+        <div style={{ padding: "26px 32px 56px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: RD.inkMute }}>Curated artifact</span>
+            <button onClick={onClose} style={{ border: "none", background: "transparent", fontSize: 20, lineHeight: 1, color: RD.inkMute, cursor: "pointer", padding: 4 }}>{"\u2715"}</button>
+          </div>
+
+          <div style={{ width: "100%", height: 300, border: `1px solid ${RD.ink}`, marginTop: 18, background: RD.surface, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            {p.image_url
+              ? <img src={p.image_url} alt={p.name || ""} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />
+              : <span style={{ fontFamily: RD.sans, fontSize: 12, color: RD.inkMute }}>No image yet</span>}
+          </div>
+
+          {p.tier && (
+            <div style={{ marginTop: 24 }}>
+              <span style={{ fontFamily: RD.sans, fontSize: 10.5, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fff", background: RD.accent, padding: "5px 9px" }}>{p.tier}</span>
+            </div>
+          )}
+          <div style={{ fontFamily: RD.serif, fontSize: 30, fontWeight: 600, letterSpacing: "-0.015em", lineHeight: 1.1, marginTop: 14, color: RD.ink }}>{p.name}</div>
+          {p.brand && <div style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: RD.inkMute, marginTop: 8 }}>{p.brand}</div>}
+          <div style={{ fontFamily: RD.sans, fontSize: 13.5, fontWeight: 500, color: RD.inkMute, marginTop: 14, paddingBottom: 18, borderBottom: `1px solid ${RD.line}` }}>{priceLine}</div>
+
+          {p.description && <div style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.62, color: RD.ink, marginTop: 20 }}>{p.description}</div>}
+
+          {box.length > 0 && (
+            <>
+              <div style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: RD.inkMute, margin: "28px 0 4px" }}>What&rsquo;s in the box</div>
+              {box.map((it, k) => (
+                <div key={k} style={{ display: "flex", alignItems: "baseline", gap: 11, padding: "11px 0", borderBottom: `1px solid ${RD.line}` }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 999, background: RD.accent, flexShrink: 0, transform: "translateY(-2px)" }} />
+                  <span style={{ fontFamily: RD.serif, fontSize: 15, color: RD.ink }}>{it}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {specs.length > 0 && (
+            <>
+              <div style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: RD.inkMute, margin: "28px 0 4px" }}>Specification</div>
+              {specs.map(([label, value], k) => (
+                <div key={k} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 18, padding: "13px 0", borderBottom: `1px solid ${RD.line}` }}>
+                  <span style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: RD.inkMute, flexShrink: 0 }}>{label}</span>
+                  <span style={{ fontFamily: RD.sans, fontSize: 14, fontWeight: 500, textAlign: "right", color: RD.ink }}>{value}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          <div style={{ marginTop: 28 }}>
+            <button onClick={() => toggleHeart({ ...p, _price: perHead })}
+              style={{ width: "100%", border: isH ? `1.5px solid ${RD.accent}` : `1.5px solid ${RD.ink}`, background: isH ? RD.accent : "transparent", color: isH ? "#fff" : RD.ink, fontFamily: RD.sans, fontSize: 12.5, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", padding: 16, cursor: "pointer" }}>
+              {isH ? "\u2713  Saved to shortlist" : "\u2661  Save to shortlist"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
