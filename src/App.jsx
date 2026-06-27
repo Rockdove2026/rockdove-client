@@ -13,6 +13,12 @@ const BORDER = "#E8E5DF";
 const DOVE_BLUE = "#6B8CAE";
 const GREEN = "#2C5F3A";
 const DARK = "#111111";
+
+// Debug overlay: only when the URL carries ?debug=1. Never shows for real clients.
+const DEBUG_MODE = (() => {
+  try { return new URLSearchParams(window.location.search).get("debug") === "1"; }
+  catch { return false; }
+})();
 const PANEL_BG = "#1E2B3A";
 const BG_COLORS = ["#F5EFE8","#EDF2EE","#EEF0F7","#F7EEF0","#F0EDE8","#EEF5F2","#F5F0E8","#EEF1F7","#F2EEF5"];
 const TIER_LABEL = { Gold:"Gold", Silver:"Silver", Platinum:"Platinum" };
@@ -376,11 +382,34 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
       const msg = (data.message || "").trim() || "Tell me a little more — who are these for?";
       historyRef.current = [...historyRef.current, { role: "assistant", content: msg }];
+
+      // Debug snapshot (only assembled when ?debug=1): exactly what was sent to the
+      // model this turn and what it returned — collapses the screenshot→SQL loop.
+      const debugInfo = DEBUG_MODE ? {
+        sent: {
+          headcount: qty,
+          budget: filters.budget_ceiling ?? null,
+          premium: !!filters.premium_requested,
+          excludeEdible: !!filters.exclude_edible,
+          excludeFragile: !!filters.exclude_fragile,
+          lightweight: !!filters.lightweight,
+          lean: filters.lean || null,
+          memory: !!memoryRef.current,
+          candidateCount: candidates.length,
+          candidates: candidates.map(c => ({ id: c.id, name: c.name, price: c.price, saved: !!c.shortlisted })),
+        },
+        got: {
+          show_products: Array.isArray(data.show_products) ? data.show_products : [],
+          modelFilters: data.filters || {},
+        },
+      } : null;
+
       setMessages(prev => [...prev, {
         role: "dove",
         text: msg,
         products: Array.isArray(data.show_products) ? data.show_products : [],
         chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
+        debug: debugInfo,
       }]);
 
       // ── Retrieval stickiness ───────────────────────────────────────────
@@ -472,6 +501,27 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     );
                   })}
                 </div>
+              )}
+
+              {DEBUG_MODE && m.role === "dove" && m.debug && (
+                <details style={{ marginLeft: 38, marginTop: 10, fontSize: 11, fontFamily: "ui-monospace,Menlo,monospace", color: "#555", background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 4, padding: "6px 10px" }}>
+                  <summary style={{ cursor: "pointer", color: "#999", userSelect: "none" }}>
+                    debug · sent {m.debug.sent.candidateCount} candidates · showed {m.debug.got.show_products.length}
+                  </summary>
+                  <div style={{ marginTop: 6, lineHeight: 1.55 }}>
+                    <div><b>filters used →</b> headcount {String(m.debug.sent.headcount)} · budget {m.debug.sent.budget == null ? "—" : "₹" + Number(m.debug.sent.budget).toLocaleString("en-IN")} · premium {String(m.debug.sent.premium)} · excl.edible {String(m.debug.sent.excludeEdible)} · excl.fragile {String(m.debug.sent.excludeFragile)} · light {String(m.debug.sent.lightweight)} · lean {m.debug.sent.lean || "—"} · memory {String(m.debug.sent.memory)}</div>
+                    <div style={{ marginTop: 4 }}><b>model returned filters →</b> {JSON.stringify(m.debug.got.modelFilters)}</div>
+                    <div style={{ marginTop: 4 }}><b>show_products →</b> [{m.debug.got.show_products.join(", ") || "none"}]</div>
+                    <div style={{ marginTop: 6 }}><b>candidates sent ({m.debug.sent.candidateCount}) — ♥ saved, maroon = shown →</b></div>
+                    <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 2, whiteSpace: "pre" }}>
+                      {m.debug.sent.candidates.map(c => (
+                        <div key={c.id} style={{ color: m.debug.got.show_products.includes(c.id) ? "#9B3A2A" : "#666" }}>
+                          {(c.saved ? "\u2665 " : "  ") + "#" + c.id + " · " + c.name + " · ₹" + Number(c.price).toLocaleString("en-IN")}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </details>
               )}
 
               {m.role === "dove" && i === lastDoveIdx && m.chips && m.chips.length > 0 && !loading && (
