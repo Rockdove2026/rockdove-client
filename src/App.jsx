@@ -381,7 +381,16 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       // the price?") instead of falling out of candidates and being forgotten.
       const STICKY_TURNS = 3;
       const shownNow = Array.isArray(data.show_products) ? data.show_products : [];
-      const freshIds = [...new Set([...namedNow, ...shownNow])];
+      // Pieces Dove NAMED in this reply (bolded, e.g. **The Swan Tray**), resolved to
+      // real catalogue ids. A product Dove pitches from memory or older context has no
+      // id to show with; pinning it here means the next turn ("show me") can actually
+      // display it instead of rendering nothing or inventing a reason it can't.
+      const boldSpans = (msg.match(/\*\*([^*]+)\*\*/g) || []).map(b => b.replace(/\*/g, "").trim());
+      const doveNamedIds = [];
+      for (const span of boldSpans) {
+        for (const p of findNamedMatches(all, span)) doveNamedIds.push(p.id);
+      }
+      const freshIds = [...new Set([...namedNow, ...shownNow, ...doveNamedIds])];
       const nextSticky = new Map();
       for (const [id, ttl] of stickyRef.current.entries()) {
         if (ttl - 1 > 0) nextSticky.set(id, ttl - 1);
