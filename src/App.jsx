@@ -345,12 +345,15 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         tiers: (p.pricing_tiers || [])
           .map(t => ({ min: t.min_qty, max: t.max_qty, unit: parseFloat(t.price_per_unit) }))
           .sort((a, b) => a.min - b.min),
+        shortlisted: hearted.has(p.id),
       };
     });
     // Products the client names THIS turn (tracked so they stay sticky next turn).
     const namedNow = findNamedMatches(all, text).map(p => p.id);
-    // Sticky ids carried from earlier turns — keep the piece under discussion in play.
-    const stickyIds = [...stickyRef.current.keys()];
+    // Sticky ids carried from earlier turns, PLUS everything this client has saved —
+    // so their shortlist is always showable (e.g. "show me what I saved" returns all
+    // of them, not just whichever happened to match the current brief filter).
+    const stickyIds = [...new Set([...stickyRef.current.keys(), ...hearted])];
     const candidates = buildCandidates(all, filters, 40, text, stickyIds);
 
     historyRef.current = [...historyRef.current, { role: "user", content: text }];
