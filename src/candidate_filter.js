@@ -1,4 +1,4 @@
-// candidate_filter.js  (v6 — sticky retrieval: named/shown products persist a few turns)
+// candidate_filter.js  (v7 — sticky retrieval + carries the client's shortlist flag)
 // ─────────────────────────────────────────────────────────────────────────────
 // Builds the per-turn candidate pool passed to /dove-converse.
 //
@@ -211,5 +211,6 @@ function compact(p) {
       ? p.whats_in_box
       : (p.whats_in_box ? [p.whats_in_box] : []),
     tiers: Array.isArray(p.tiers) ? p.tiers : [],
+    shortlisted: !!p.shortlisted,
   };
 }
