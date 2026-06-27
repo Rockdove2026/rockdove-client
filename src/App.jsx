@@ -246,6 +246,29 @@ const REFINE_CHIPS = [
 
 // ── DOVE CHAT VIEW (?mode=chat) — conversational flow over /dove-converse ──────
 
+// ── Matisse cut-out decor flourish (Rock Dove brand shapes) ──────────────────
+function RockDoveDecor() {
+  const s = { flexShrink: 0, height: "auto" };
+  return (
+    <div aria-hidden="true" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20, flexWrap: "wrap", marginBottom: 0 }}>
+      {/* crescent — green */}
+      <svg viewBox="0 0 64 68" style={{ ...s, width: 26 }}><path d="M40 4 a30 30 0 1 0 0 60 a23 30 0 1 1 0 -60 z" fill="#2f9e6f" /></svg>
+      {/* 4-point star — gold */}
+      <svg viewBox="0 0 40 40" style={{ ...s, width: 22 }}><path d="M20 2 L24 16 L38 20 L24 24 L20 38 L16 24 L2 20 L16 16 Z" fill="#d9a23c" /></svg>
+      {/* almond leaf — magenta */}
+      <svg viewBox="0 0 60 60" style={{ ...s, width: 22 }}><path d="M30 2 C 50 16, 50 44, 30 58 C 10 44, 10 16, 30 2 Z" fill="#c84a7d" /></svg>
+      {/* pomegranate — red */}
+      <svg viewBox="0 0 60 66" style={{ ...s, width: 24 }}><path d="M30 16 L24 4 L30 9 L36 4 Z" fill="#d93a2b" /><path d="M30 14 C 47 14, 56 28, 56 40 C 56 54, 44 62, 30 62 C 16 62, 4 54, 4 40 C 4 28, 13 14, 30 14 Z" fill="#d93a2b" /></svg>
+      {/* half-circle bowl — periwinkle */}
+      <svg viewBox="0 0 64 34" style={{ ...s, width: 34 }}><path d="M2 4 A 30 30 0 0 0 62 4 Z" fill="#7b7fd0" /></svg>
+      {/* 5-point star — teal */}
+      <svg viewBox="0 0 60 58" style={{ ...s, width: 22 }}><path d="M30 2 L37 22 L58 22 L41 35 L47 56 L30 43 L13 56 L19 35 L2 22 L23 22 Z" fill="#1b6b6b" /></svg>
+      {/* swallow — cobalt line */}
+      <svg viewBox="0 0 100 36" style={{ ...s, width: 48 }}><path d="M2 24 Q 24 2 44 22 Q 50 28 56 22 Q 76 2 98 24" fill="none" stroke="#2e6fcb" strokeWidth="4" strokeLinecap="round" /></svg>
+    </div>
+  );
+}
+
 function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist, submitting, setHeadcount }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -488,6 +511,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       {/* Messages */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "40px 0 32px" }}>
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 28px", display: "flex", flexDirection: "column", gap: 40 }}>
+          <RockDoveDecor />
           {messages.map((m, i) => (
             <div key={i}>
               {m.role === "dove" ? (
@@ -512,7 +536,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               )}
 
               {m.role === "dove" && m.products && m.products.length > 0 && (
-                <div style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
+                <div style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 240px))", gap: 14 }}>
                   {m.products.map((pid, ci) => {
                     const p = productById(pid);
                     if (!p) return null;
@@ -521,8 +545,8 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     const tint = RD_PIECE[ci % 3], tintSoft = RD_PIECE_SOFT[ci % 3];
                     return (
                       <div key={pid} style={{ border: `1px solid ${RD.line}`, background: RD.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                        <div onClick={() => setDetail(p)} style={{ position: "relative", cursor: "pointer", height: 200, background: tintSoft }}>
-                          {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
+                        <div onClick={() => setDetail(p)} style={{ position: "relative", cursor: "pointer", width: "100%", paddingBottom: "100%", background: tintSoft }}>
+                          {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
                           {p.tier && <span style={{ position: "absolute", top: 12, left: 12, fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fff", background: tint, padding: "5px 9px" }}>{p.tier}</span>}
                         </div>
                         <div style={{ padding: "16px 16px 18px", display: "flex", flexDirection: "column", flex: 1, borderTop: `1px solid ${RD.line}` }}>
@@ -602,7 +626,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
-              placeholder="Tell Dove about the occasion, the headcount, the budget per head\u2026"
+              placeholder="Tell Dove about the occasion, the headcount, the budget per head…"
               style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 15, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
             />
             <button onClick={() => send()} disabled={loading}
@@ -635,15 +659,14 @@ function ProductDetail({ product: p, qty, hearted, toggleHeart, onClose }) {
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(33,28,22,0.34)" }} />
       <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 51, width: "min(520px,100%)", background: RD.paper, borderLeft: `1px solid ${RD.ink}`, overflowY: "auto" }}>
         <div style={{ padding: "26px 32px 56px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: RD.inkMute }}>Curated artifact</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
             <button onClick={onClose} style={{ border: "none", background: "transparent", fontSize: 20, lineHeight: 1, color: RD.inkMute, cursor: "pointer", padding: 4 }}>{"\u2715"}</button>
           </div>
 
-          <div style={{ width: "100%", height: 300, border: `1px solid ${RD.ink}`, marginTop: 18, background: RD.surface, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <div style={{ position: "relative", width: "100%", paddingBottom: "100%", border: `1px solid ${RD.ink}`, marginTop: 18, background: RD.surface, overflow: "hidden" }}>
             {p.image_url
-              ? <img src={p.image_url} alt={p.name || ""} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />
-              : <span style={{ fontFamily: RD.sans, fontSize: 12, color: RD.inkMute }}>No image yet</span>}
+              ? <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />
+              : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: RD.sans, fontSize: 12, color: RD.inkMute }}>No image yet</span>}
           </div>
 
           {p.tier && (
