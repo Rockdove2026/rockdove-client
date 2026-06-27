@@ -121,5 +121,6 @@ function compact(p) {
     whats_in_box: Array.isArray(p.whats_in_box)
       ? p.whats_in_box
       : (p.whats_in_box ? [p.whats_in_box] : []),
+    tiers: Array.isArray(p.tiers) ? p.tiers : [],
   };
 }
