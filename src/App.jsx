@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
 import SubmissionSummary from "./SubmissionSummary.jsx";
 import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters } from "./conversation_state.js";
-import { buildCandidates } from "./candidate_filter.js";
+import { buildCandidates, findNamedMatches } from "./candidate_filter.js";
 
 const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
   "https://ikka-catalogue-service-production.up.railway.app";
@@ -229,6 +229,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   const scrollRef = useRef(null);
   const startedRef = useRef(false);
   const memoryRef = useRef(null);   // session-scoped client memory, sent on every /dove-converse turn
+  const stickyRef = useRef(new Map());  // productId -> turns remaining; keeps a named/shown piece in candidates across follow-ups
   const STORAGE_KEY = `rd_chat_${session?.token || session?.id || "anon"}`;
 
   // Persist the in-progress chat so a refresh / return-on-same-device restores it.
@@ -346,7 +347,11 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           .sort((a, b) => a.min - b.min),
       };
     });
-    const candidates = buildCandidates(all, filters, 40, text);
+    // Products the client names THIS turn (tracked so they stay sticky next turn).
+    const namedNow = findNamedMatches(all, text).map(p => p.id);
+    // Sticky ids carried from earlier turns — keep the piece under discussion in play.
+    const stickyIds = [...stickyRef.current.keys()];
+    const candidates = buildCandidates(all, filters, 40, text, stickyIds);
 
     historyRef.current = [...historyRef.current, { role: "user", content: text }];
 
@@ -368,6 +373,21 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         products: Array.isArray(data.show_products) ? data.show_products : [],
         chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
       }]);
+
+      // ── Retrieval stickiness ───────────────────────────────────────────
+      // Age every sticky entry by one turn (drop the expired), then (re)arm the
+      // pieces named this turn or shown in this reply. So a product the client
+      // just discussed survives the next few context-light turns ("yes", "and
+      // the price?") instead of falling out of candidates and being forgotten.
+      const STICKY_TURNS = 3;
+      const shownNow = Array.isArray(data.show_products) ? data.show_products : [];
+      const freshIds = [...new Set([...namedNow, ...shownNow])];
+      const nextSticky = new Map();
+      for (const [id, ttl] of stickyRef.current.entries()) {
+        if (ttl - 1 > 0) nextSticky.set(id, ttl - 1);
+      }
+      for (const id of freshIds) nextSticky.set(id, STICKY_TURNS);
+      stickyRef.current = nextSticky;
     } catch (e) {
       setMessages(prev => [...prev, { role: "dove", text: "I'm just waking up — give me a moment and try that again.", chips: [] }]);
     }
