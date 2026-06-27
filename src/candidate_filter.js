@@ -1,4 +1,4 @@
-// candidate_filter.js  (v7 — sticky retrieval + carries the client's shortlist flag)
+// candidate_filter.js  (v8 — category retrieval: browse by type, not just by name)
 // ─────────────────────────────────────────────────────────────────────────────
 // Builds the per-turn candidate pool passed to /dove-converse.
 //
@@ -76,6 +76,19 @@ export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, que
     if (filters.lightweight     && weightOf(p) > LIGHT_MAX_G) return false;
     return true;
   });
+
+  // Category browse: when the client asks for a TYPE of thing ("candles", "brass",
+  // "tea", "something for the home") rather than a named piece, restrict the
+  // recommendation pool to products that actually match - by name, tags and box
+  // contents - so Dove shows real candles instead of reaching for a remembered one.
+  // Budget and the lean still apply within the restricted set. Only restrict when it
+  // leaves something to show; otherwise fall back to the full pool.
+  const categoryIds = query ? findCategoryMatches(catalog, query) : [];
+  if (categoryIds.length) {
+    const catSet = new Set(categoryIds);
+    const restricted = pool.filter(p => catSet.has(p.id));
+    if (restricted.length) pool = restricted;
+  }
 
   let base;
   if (pool.length === 0) {
@@ -192,6 +205,68 @@ export function findNamedMatches(catalog, query) {
   }
   scored.sort((a, b) => b.frac - a.frac || b.matched - a.matched);
   return scored.slice(0, 5).map(x => x.p);
+}
+
+// ── Category / keyword retrieval ────────────────────────────────────────────
+// When a client browses by TYPE ("any candles?", "something in brass", "tea sets")
+// rather than naming a piece, restrict candidates to products that genuinely match.
+// Without this, a category ask returns the brief's generic top slice and Dove may
+// pitch a remembered item it can't show. Matching is on whole words across name,
+// tags and box contents, so "tea" matches a tea set but not "steamer".
+const CATEGORY_VOCAB = new Set([
+  // item types
+  "candle","candles","tea","coffee","mug","mugs","cup","cups","bowl","bowls",
+  "plate","plates","tray","trays","frame","frames","coaster","coasters",
+  "scarf","scarves","stole","stoles","shawl","shawls","pashmina","wrap",
+  "soap","soaps","incense","diya","diyas","urli","platter","platters",
+  "spoon","spoons","tumbler","tumblers","jar","jars","bottle","bottles",
+  "vase","vases","clock","clocks","journal","notebook","pen","planter",
+  // materials
+  "brass","marble","silver","gold","golden","ceramic","wood","wooden","bone",
+  "inlay","leather","glass","copper","stoneware","nacre","pearl","silk","wool","cashmere",
+  // qualities / scents
+  "scented","soy","floral","handpainted","hand-painted","handmade","engraved","embroidered",
+  // rooms / use
+  "home","kitchen","desk","table","tableware","barware","bar","decor","decorative","dining",
+]);
+
+function categoryTerms(query) {
+  return [...new Set(
+    String(query || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(t => CATEGORY_VOCAB.has(t))
+  )];
+}
+
+function productTokens(p) {
+  const tags = (p.tags || p.product_tags || [])
+    .map(t => (typeof t === "string" ? t : (t && t.tag) || ""))
+    .join(" ");
+  const box = Array.isArray(p.whats_in_box) ? p.whats_in_box.join(" ") : (p.whats_in_box || "");
+  const text = [p.name || "", tags, box, p.short_desc || p.description || ""].join(" ");
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean)
+  );
+}
+
+export function findCategoryMatches(catalog, query) {
+  const terms = categoryTerms(query);
+  if (!terms.length) return [];
+  const hits = [];
+  for (const p of (catalog || [])) {
+    const toks = productTokens(p);
+    let matched = 0;
+    for (const term of terms) {
+      const sing = term.replace(/s$/, "");
+      const plur = sing + "s";
+      if (toks.has(term) || toks.has(sing) || toks.has(plur)) matched++;
+    }
+    if (matched >= 1) hits.push({ p, matched });
+  }
+  hits.sort((a, b) => b.matched - a.matched);   // most category terms matched first
+  return hits.map(h => h.p.id);
 }
 
 // Compact shape sent to the model — keep each item small.
