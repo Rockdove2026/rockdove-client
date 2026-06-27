@@ -341,6 +341,9 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         maker: p.brand || "",
         short_desc: p.description || "",
         whats_in_box: Array.isArray(p.whats_in_box) ? p.whats_in_box : (p.whats_in_box ? [p.whats_in_box] : []),
+        tiers: (p.pricing_tiers || [])
+          .map(t => ({ min: t.min_qty, max: t.max_qty, unit: parseFloat(t.price_per_unit) }))
+          .sort((a, b) => a.min - b.min),
       };
     });
     const candidates = buildCandidates(all, filters, 40);
