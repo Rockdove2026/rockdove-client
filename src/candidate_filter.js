@@ -1,4 +1,4 @@
-// candidate_filter.js  (v5 — named-product retrieval: pin pieces the client names)
+// candidate_filter.js  (v6 — sticky retrieval: named/shown products persist a few turns)
 // ─────────────────────────────────────────────────────────────────────────────
 // Builds the per-turn candidate pool passed to /dove-converse.
 //
@@ -61,7 +61,7 @@ function sortByLean(pool, lean) {
   return arr;
 }
 
-export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, query = "") {
+export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, query = "", stickyIds = []) {
   const ceiling = filters.budget_ceiling || null;
   const premium = !!filters.premium_requested;
 
@@ -106,10 +106,27 @@ export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, que
     base = capped.map(compact);
   }
 
-  // Named matches lead the list; dedupe against the recommendation slice; cap.
-  if (!pinned.length) return base;
-  const seen = new Set(pinned.map(p => p.id));
-  return [...pinned, ...base.filter(p => !seen.has(p.id))].slice(0, max);
+  // Sticky products: recently named or shown in earlier turns. Force-included from
+  // the FULL catalogue so a follow-up like "yes" / "and the price?" still has the
+  // piece under discussion, even though THIS message names nothing. Without this,
+  // a product falls out of candidates the moment the client stops naming it, and
+  // Dove loses track of (or contradicts) what it just said.
+  const sticky = (Array.isArray(stickyIds) && stickyIds.length)
+    ? stickyIds
+        .map(id => (catalog || []).find(p => p.id === id))
+        .filter(Boolean)
+        .map(compact)
+    : [];
+
+  // Lead = this turn's named pins, then sticky context; deduped, order preserved.
+  const seen = new Set();
+  const lead = [];
+  for (const p of [...pinned, ...sticky]) {
+    if (!seen.has(p.id)) { seen.add(p.id); lead.push(p); }
+  }
+
+  if (!lead.length) return base;
+  return [...lead, ...base.filter(p => !seen.has(p.id))].slice(0, max);
 }
 
 // ── Named-product retrieval ─────────────────────────────────────────────────
@@ -161,7 +178,7 @@ function tokMatch(a, b) {
   return false;
 }
 
-function findNamedMatches(catalog, query) {
+export function findNamedMatches(catalog, query) {
   const q = nameTokens(query);
   if (q.length === 0) return [];
   const scored = [];
