@@ -1,4 +1,4 @@
-// conversation_state.js  (v3 — corrected)
+// conversation_state.js  (v4 — headcount nouns: boxes/sets/pieces/etc.)
 // ─────────────────────────────────────────────────────────────────────────────
 // The client-owned accumulator. Split ownership:
 //   • HARD constraints (budget, edible, fragile, weight) — client-owned. Parsed
@@ -56,7 +56,7 @@ export function parseUserMessage(state, text) {
   }
 
   // ── Headcount ──────────────────────────────────────────────────────────
-  const q = t.match(/(\d[\d,]{0,5})\s*(?:senior|junior|people|persons?|recipients?|guests?|employees?|clients?|bankers?|staff|heads?|colleagues?|team|members?|gifts?|units?|pax|hampers?)/);
+  const q = t.match(/(\d[\d,]{0,5})\s*(?:senior|junior|people|persons?|recipients?|guests?|employees?|clients?|bankers?|staff|heads?|colleagues?|team|members?|gifts?|boxes?|sets?|pieces?|orders?|items?|baskets?|kits?|bottles?|jars?|tins?|hampers?|units?|pax)/);
   if (q) {
     const val = parseInt(q[1].replace(/,/g, ""), 10);
     if (val >= 1 && val <= 1000000) state.headcount = val;
