@@ -1,4 +1,4 @@
-// conversation_state.js  (v7 — model can correct BOTH stale headcount and budget)
+// conversation_state.js  (v8 — open budget: "regardless of price" clears the ceiling)
 // ─────────────────────────────────────────────────────────────────────────────
 // The client-owned accumulator. Split ownership:
 //   • HARD constraints (budget, edible, fragile, weight) — client-owned. Parsed
@@ -53,6 +53,19 @@ export function parseUserMessage(state, text) {
       const val = Math.round(parseFloat(k[1]) * 1000);
       if (val >= 300 && val <= 1000000) state.budget_ceiling = val;
     }
+  }
+
+  // ── Open budget — client removes the ceiling ("no budget", "regardless of
+  // price", "money no object"). Clears any stale ceiling so premium pieces stop
+  // being filtered out. Without this, an earlier low budget keeps capping results
+  // even after the client says price is no object.
+  if (/\bno\s+budget\b/.test(t)
+      || /\bregardless\s+of\s+(?:price|cost|budget)\b/.test(t)
+      || /\b(?:price|cost|money)\s+(?:is\s+)?no\s+object\b/.test(t)
+      || /\bno\s+(?:budget\s+)?(?:limit|ceiling|cap|max(?:imum)?)\b/.test(t)
+      || /\bany\s+price\b/.test(t)
+      || /\bwhatever\s+it\s+costs\b/.test(t)) {
+    state.budget_ceiling = null;
   }
 
   // ── Headcount ──────────────────────────────────────────────────────────
@@ -125,6 +138,10 @@ export function mergeModelFilters(state, modelFilters = {}) {
   if (typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) {
     state.budget_ceiling = modelFilters.budget_ceiling;
   }
+
+  // Model can signal the client removed the ceiling ("show the best, price no object").
+  // This must run AFTER the numeric set above so an open budget always wins this turn.
+  if (modelFilters.budget_open === true) state.budget_ceiling = null;
   // Headcount: trust the model's per-turn read of the CURRENT brief, even to LOWER a
   // stale count. The model understands phrasing the regex can't enumerate ("a couple",
   // "a gift for my friend", "just her") and, seeing the whole history, holds an event's
