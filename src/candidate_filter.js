@@ -1,4 +1,4 @@
-// candidate_filter.js  (v3 — corrected)
+// candidate_filter.js  (v4 — whats_in_box preserved through compact, short_desc 280)
 // ─────────────────────────────────────────────────────────────────────────────
 // Builds the per-turn candidate pool passed to /dove-converse.
 //
@@ -117,6 +117,9 @@ function compact(p) {
       .filter(Boolean)
       .slice(0, 6),
     maker: p.maker || p.maker_name || undefined,
-    short_desc: (p.short_desc || p.description || "").slice(0, 120) || undefined,
+    short_desc: (p.short_desc || p.description || "").slice(0, 280) || undefined,
+    whats_in_box: Array.isArray(p.whats_in_box)
+      ? p.whats_in_box
+      : (p.whats_in_box ? [p.whats_in_box] : []),
   };
 }
