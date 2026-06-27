@@ -1,4 +1,4 @@
-// candidate_filter.js  (v4 — whats_in_box preserved through compact, short_desc 280)
+// candidate_filter.js  (v5 — named-product retrieval: pin pieces the client names)
 // ─────────────────────────────────────────────────────────────────────────────
 // Builds the per-turn candidate pool passed to /dove-converse.
 //
@@ -61,9 +61,13 @@ function sortByLean(pool, lean) {
   return arr;
 }
 
-export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES) {
+export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, query = "") {
   const ceiling = filters.budget_ceiling || null;
   const premium = !!filters.premium_requested;
+
+  // Products the client NAMED explicitly — searched across the FULL catalogue so
+  // a named piece surfaces even if the brief filters would otherwise drop it.
+  const pinned = query ? findNamedMatches(catalog, query).map(compact) : [];
 
   // Hard constraints (mirror the client-owned accumulator).
   let pool = (catalog || []).filter(p => {
@@ -72,37 +76,105 @@ export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES) {
     if (filters.lightweight     && weightOf(p) > LIGHT_MAX_G) return false;
     return true;
   });
-  if (pool.length === 0) return [];
 
-  // No budget stated → sort by lean, return the top slice.
-  if (!ceiling) {
-    return sortByLean(pool, filters.lean).slice(0, max).map(compact);
-  }
-
-  const tiers = premium ? TIERS_ABOVE_PREMIUM : TIERS_ABOVE_DEFAULT;
-  const allowedAbove = allowedAboveByTier(pool, ceiling, tiers);
-
-  const under = pool
-    .filter(p => p.price <= ceiling)
-    .sort((a, b) => (ceiling - a.price) - (ceiling - b.price)); // closest to ceiling first
-  const over = pool
-    .filter(p => p.price > ceiling && allowedAbove.has(p.price))
-    .sort((a, b) => a.price - b.price);                          // cheapest-premium first
-
-  let capped;
-  if (premium) {
-    // Asked to go up — lead with premium, reserve a healthy share of slots.
-    const premiumSlots = Math.min(over.length, Math.ceil(max * PREMIUM_LEAD_SHARE));
-    capped = [...over.slice(0, premiumSlots), ...under].slice(0, max);
+  let base;
+  if (pool.length === 0) {
+    base = [];
+  } else if (!ceiling) {
+    // No budget stated → sort by lean, return the top slice.
+    base = sortByLean(pool, filters.lean).slice(0, max).map(compact);
   } else {
-    // Lead with under-budget (closest to ceiling), but guarantee several premium
-    // pieces survive so a later "more premium" has genuine range.
-    const reserved = Math.min(over.length, RESERVED_PREMIUM);
-    const underSlots = Math.max(0, max - reserved);
-    capped = [...under.slice(0, underSlots), ...over.slice(0, reserved)];
+    const tiers = premium ? TIERS_ABOVE_PREMIUM : TIERS_ABOVE_DEFAULT;
+    const allowedAbove = allowedAboveByTier(pool, ceiling, tiers);
+
+    const under = pool
+      .filter(p => p.price <= ceiling)
+      .sort((a, b) => (ceiling - a.price) - (ceiling - b.price)); // closest to ceiling first
+    const over = pool
+      .filter(p => p.price > ceiling && allowedAbove.has(p.price))
+      .sort((a, b) => a.price - b.price);                          // cheapest-premium first
+
+    let capped;
+    if (premium) {
+      const premiumSlots = Math.min(over.length, Math.ceil(max * PREMIUM_LEAD_SHARE));
+      capped = [...over.slice(0, premiumSlots), ...under].slice(0, max);
+    } else {
+      const reserved = Math.min(over.length, RESERVED_PREMIUM);
+      const underSlots = Math.max(0, max - reserved);
+      capped = [...under.slice(0, underSlots), ...over.slice(0, reserved)];
+    }
+    base = capped.map(compact);
   }
 
-  return capped.map(compact);
+  // Named matches lead the list; dedupe against the recommendation slice; cap.
+  if (!pinned.length) return base;
+  const seen = new Set(pinned.map(p => p.id));
+  return [...pinned, ...base.filter(p => !seen.has(p.id))].slice(0, max);
+}
+
+// ── Named-product retrieval ─────────────────────────────────────────────────
+// When a client names a specific piece ("the Kashmiri Kahwa Set", "naturalist
+// box"), make sure it reaches the model even if the brief filters would drop it.
+// Guard against over-matching: a product is pinned only when MOST of its
+// distinctive name survives in the message, so a lone generic word ("tea")
+// stays a category browse rather than pinning dozens of products.
+const NAME_STOP = new Set([
+  "the","a","an","of","and","with","for","to","in","on","our","your","my","me",
+  "set","sets","box","boxes","gift","gifts","collection","collections",
+  "hamper","hampers","basket","baskets","kit","kits","pack","packs",
+  "tin","tins","jar","jars","bottle","bottles","s","o","e",
+  "show","see","price","cost","what","whats","is","are","it","this","that",
+  "please","can","you","want","need","get","give","tell","about","some","any",
+  // occasion / audience context — brief words, not product names
+  "diwali","christmas","holi","rakhi","eid","wedding","birthday","anniversary",
+  "festive","festival","corporate","client","clients","staff","team","employees",
+  "recipient","recipients","people","guests",
+]);
+
+function nameTokens(str) {
+  return String(str || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(t => t && !NAME_STOP.has(t) && !/^\d+$/.test(t));
+}
+
+function lev(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function tokMatch(a, b) {
+  if (a === b) return true;
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return true;
+  if (a.length >= 4 && b.length >= 4 && Math.abs(a.length - b.length) <= 1 && lev(a, b) <= 1) return true;
+  return false;
+}
+
+function findNamedMatches(catalog, query) {
+  const q = nameTokens(query);
+  if (q.length === 0) return [];
+  const scored = [];
+  for (const p of (catalog || [])) {
+    const nm = nameTokens(p.name);
+    if (!nm.length) continue;
+    let matched = 0;
+    for (const nt of nm) if (q.some(qt => tokMatch(nt, qt))) matched++;
+    const frac = matched / nm.length;
+    if (matched >= 1 && frac >= 0.6) scored.push({ p, matched, frac });
+  }
+  scored.sort((a, b) => b.frac - a.frac || b.matched - a.matched);
+  return scored.slice(0, 5).map(x => x.p);
 }
 
 // Compact shape sent to the model — keep each item small.
