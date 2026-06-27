@@ -346,7 +346,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           .sort((a, b) => a.min - b.min),
       };
     });
-    const candidates = buildCandidates(all, filters, 40);
+    const candidates = buildCandidates(all, filters, 40, text);
 
     historyRef.current = [...historyRef.current, { role: "user", content: text }];
 
