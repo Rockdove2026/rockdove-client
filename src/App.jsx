@@ -340,6 +340,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         tags,
         maker: p.brand || "",
         short_desc: p.description || "",
+        whats_in_box: Array.isArray(p.whats_in_box) ? p.whats_in_box : (p.whats_in_box ? [p.whats_in_box] : []),
       };
     });
     const candidates = buildCandidates(all, filters, 40);
