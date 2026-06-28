@@ -17,16 +17,16 @@ const DARK = "#111111";
 // ── Rock Dove "Evergreen" skin (from Claude Design export) ────────────────────
 const RD = {
   paper: "#F7F5F0", ink: "#2A2826", inkSoft: "#3A3633", inkMute: "#8C8377",
-  line: "#E4DED2", surface: "#FFFFFF", wordmark: "#5E7E9C",
-  accent: "#5E7E9C",      // Dove identity — dusty blue (the single accent)
-  secondary: "#41617F",   // client identity — deep dusty blue
+  line: "#E4DED2", surface: "#FFFFFF", wordmark: "#4079AE",
+  accent: "#4079AE",      // Dove identity — dusty blue (the single accent)
+  secondary: "#2F5F8A",   // client identity — deep dusty blue
   bubble: "#FBF8F2", bubbleLine: "#E4DED2",
   serif: "'Source Serif 4', Georgia, serif",
   sans: "'Nunito', sans-serif",
 };
 // per-card tint, rotated by position in the shown set
-const RD_PIECE = ["#5E7E9C", "#41617F", "#6E8AA8"];
-const RD_PIECE_SOFT = ["#DCE2E6", "#E2E5E3", "#D7E0E8"];
+const RD_PIECE = ["#4079AE", "#2F5F8A", "#5E93C2"];
+const RD_PIECE_SOFT = ["#D6E2EE", "#DDE7EF", "#CDDCEC"];
 // load Nunito + Source Serif 4 once
 if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
   const l = document.createElement("link");
@@ -39,7 +39,7 @@ if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
 if (typeof document !== "undefined" && !document.getElementById("rd-skin-css")) {
   const st = document.createElement("style");
   st.id = "rd-skin-css";
-  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}";
+  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}@media (max-width:600px){.rd-msg{font-size:20px!important;line-height:1.7!important}}";
   document.head.appendChild(st);
 }
 
@@ -542,7 +542,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     </span>
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
                   </div>
-                  <div style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.6, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                  <div className="rd-msg" style={{ fontFamily: RD.serif, fontSize: 19, fontWeight: 400, lineHeight: 1.7, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap" }}>{m.text}</div>
                 </div>
               ) : (
                 <div style={{ marginLeft: "auto", maxWidth: 500, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -550,7 +550,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.secondary }}>{(session.client_name || "You").split(" ")[0]}&nbsp;&nbsp;&middot;&nbsp;&nbsp;You</span>
                     <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 999, background: RD.secondary }} />
                   </div>
-                  <div style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 15, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                  <div style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 16, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap" }}>{m.text}</div>
                 </div>
               )}
 
@@ -612,7 +612,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                 <div style={{ marginLeft: 41, marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {m.chips.map((c, ci) => (
                     <button key={ci} onClick={() => send(c)}
-                      style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", color: RD.inkSoft, background: RD.surface, border: `1px solid ${RD.line}`, padding: "8px 14px", cursor: "pointer" }}>
+                      style={{ fontFamily: RD.sans, fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: RD.inkSoft, background: RD.surface, border: `1px solid ${RD.line}`, padding: "8px 14px", cursor: "pointer" }}>
                       {c}
                     </button>
                   ))}
@@ -647,7 +647,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
               placeholder="Tell Dove about the occasion, the headcount, the budget per head…"
-              style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 15, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
+              style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 16, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
             />
             <button onClick={() => send()} disabled={loading}
               style={{ width: 54, flexShrink: 0, border: "none", background: RD.secondary, color: "#fff", fontSize: 20, cursor: "pointer" }}>&rarr;</button>
