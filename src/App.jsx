@@ -16,17 +16,17 @@ const DARK = "#111111";
 
 // ── Rock Dove "Evergreen" skin (from Claude Design export) ────────────────────
 const RD = {
-  paper: "#f9f4ea", ink: "#1b3d2e", inkSoft: "#444444", inkMute: "#6b6b6b",
-  line: "#e7e7e4", surface: "#ffffff", wordmark: "#8FB9E0",
-  accent: "#4e9d6c",      // Dove identity
-  secondary: "#2e6fcb",   // client identity
-  bubble: "#fbfaf6", bubbleLine: "#e8e3d4",
+  paper: "#F7F5F0", ink: "#2A2826", inkSoft: "#3A3633", inkMute: "#8C8377",
+  line: "#E4DED2", surface: "#FFFFFF", wordmark: "#5E7E9C",
+  accent: "#5E7E9C",      // Dove identity — dusty blue (the single accent)
+  secondary: "#41617F",   // client identity — deep dusty blue
+  bubble: "#FBF8F2", bubbleLine: "#E4DED2",
   serif: "'Source Serif 4', Georgia, serif",
   sans: "'Nunito', sans-serif",
 };
 // per-card tint, rotated by position in the shown set
-const RD_PIECE = ["#2e6fcb", "#4e9d6c", "#6f9fd8"];
-const RD_PIECE_SOFT = ["#d4e1f3", "#d6e6dc", "#dde8f4"];
+const RD_PIECE = ["#5E7E9C", "#41617F", "#6E8AA8"];
+const RD_PIECE_SOFT = ["#DCE2E6", "#E2E5E3", "#D7E0E8"];
 // load Nunito + Source Serif 4 once
 if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
   const l = document.createElement("link");
