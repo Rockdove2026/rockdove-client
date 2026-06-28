@@ -39,7 +39,7 @@ if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
 if (typeof document !== "undefined" && !document.getElementById("rd-skin-css")) {
   const st = document.createElement("style");
   st.id = "rd-skin-css";
-  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}@media (max-width:600px){.rd-msg{font-size:19px!important;line-height:1.65!important}.rd-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important;margin-left:0!important;gap:12px!important}.rd-card-name{font-size:13px!important;line-height:1.25!important}.rd-card-price{font-size:14px!important}.rd-chip{font-size:13px!important}.rd-input{font-size:16px!important}.rd-you{font-size:16px!important}.rd-card-foot{flex-direction:column!important;align-items:stretch!important;gap:8px!important}.rd-card-foot button{width:100%!important;text-align:center!important}}";
+  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}@media (max-width:600px){.rd-scroll{padding-left:16px!important;padding-right:16px!important}.rd-inputwrap{padding-left:16px!important;padding-right:16px!important}.rd-msg{font-size:19px!important;line-height:1.65!important}.rd-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important;margin-left:0!important;gap:8px!important}.rd-card-img{padding-bottom:115%!important}.rd-card-name{font-size:14px!important;line-height:1.25!important}.rd-card-price{font-size:15px!important}.rd-chip{font-size:13px!important}.rd-input{font-size:16px!important}.rd-you{font-size:16px!important}.rd-card-foot{flex-direction:column!important;align-items:stretch!important;gap:8px!important}.rd-card-foot button{width:100%!important;text-align:center!important}}";
   document.head.appendChild(st);
 }
 
@@ -530,7 +530,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
 
       {/* Messages */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "40px 0 32px" }}>
-        <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 28px", display: "flex", flexDirection: "column", gap: 40 }}>
+        <div className="rd-scroll" style={{ maxWidth: 760, margin: "0 auto", padding: "0 28px", display: "flex", flexDirection: "column", gap: 40 }}>
           {messages.map((m, i) => (
             <div key={i}>
               {m.role === "dove" ? (
@@ -564,7 +564,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     const tint = RD_PIECE[ci % 3], tintSoft = RD_PIECE_SOFT[ci % 3];
                     return (
                       <div key={pid} style={{ border: `1px solid ${RD.line}`, background: RD.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                        <div onClick={() => setDetail(p)} style={{ position: "relative", cursor: "pointer", width: "100%", paddingBottom: "100%", background: tintSoft }}>
+                        <div className="rd-card-img" onClick={() => setDetail(p)} style={{ position: "relative", cursor: "pointer", width: "100%", paddingBottom: "100%", background: tintSoft }}>
                           {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
                           {p.tier && <span style={{ position: "absolute", top: 12, left: 12, fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fff", background: tint, padding: "5px 9px" }}>{p.tier}</span>}
                         </div>
@@ -640,7 +640,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
 
       {/* Input */}
       <div style={{ borderTop: `1px solid ${RD.line}`, background: RD.paper, flexShrink: 0 }}>
-        <div style={{ maxWidth: 760, margin: "0 auto", padding: "16px 28px" }}>
+        <div className="rd-inputwrap" style={{ maxWidth: 760, margin: "0 auto", padding: "16px 28px" }}>
           <div style={{ display: "flex", border: `1.5px solid ${RD.ink}`, background: RD.surface, borderRadius: 14, overflow: "hidden" }}>
             <input
               className="rd-input"
