@@ -1,4 +1,4 @@
-// candidate_filter.js  (v8 — category retrieval: browse by type, not just by name)
+// candidate_filter.js  (v9 — per-total pricing: ceiling compared against price × headcount when budget_per==='total')
 // ─────────────────────────────────────────────────────────────────────────────
 // Builds the per-turn candidate pool passed to /dove-converse.
 //
@@ -36,9 +36,9 @@ function hasTag(p, names) {
 
 // Allowed above-ceiling prices, grouped into `nTiers` CLUSTERED tiers.
 // Consecutive distinct prices separated by <= gap belong to the same tier.
-function allowedAboveByTier(items, ceiling, nTiers) {
+function allowedAboveByTier(items, ceiling, nTiers, effOf = p => p.price) {
   const gap = Math.max(Math.round(ceiling * CLUSTER_GAP_FRAC), CLUSTER_GAP_MIN);
-  const above = [...new Set(items.filter(p => p.price > ceiling).map(p => p.price))].sort((a, b) => a - b);
+  const above = [...new Set(items.filter(p => effOf(p) > ceiling).map(p => effOf(p)))].sort((a, b) => a - b);
   const allowed = new Set();
   let tiers = 0, prev = null;
   for (const price of above) {
@@ -64,6 +64,13 @@ function sortByLean(pool, lean) {
 export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, query = "", stickyIds = []) {
   const ceiling = filters.budget_ceiling || null;
   const premium = !!filters.premium_requested;
+
+  // Per-total budgets: the ceiling is the WHOLE-BRIEF figure, so a piece's
+  // effective cost is price × headcount. In per-head mode (default, and any caller
+  // that omits budget_per) eff(p) === p.price, so behaviour is identical to v8.
+  const headcount = (typeof filters.headcount === "number" && filters.headcount >= 1) ? filters.headcount : 1;
+  const perTotal = filters.budget_per === "total";
+  const eff = p => (perTotal ? p.price * headcount : p.price);
 
   // Products the client NAMED explicitly — searched across the FULL catalogue so
   // a named piece surfaces even if the brief filters would otherwise drop it.
@@ -98,14 +105,14 @@ export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, que
     base = sortByLean(pool, filters.lean).slice(0, max).map(compact);
   } else {
     const tiers = premium ? TIERS_ABOVE_PREMIUM : TIERS_ABOVE_DEFAULT;
-    const allowedAbove = allowedAboveByTier(pool, ceiling, tiers);
+    const allowedAbove = allowedAboveByTier(pool, ceiling, tiers, eff);
 
     const under = pool
-      .filter(p => p.price <= ceiling)
-      .sort((a, b) => (ceiling - a.price) - (ceiling - b.price)); // closest to ceiling first
+      .filter(p => eff(p) <= ceiling)
+      .sort((a, b) => (ceiling - eff(a)) - (ceiling - eff(b))); // closest to ceiling first
     const over = pool
-      .filter(p => p.price > ceiling && allowedAbove.has(p.price))
-      .sort((a, b) => a.price - b.price);                          // cheapest-premium first
+      .filter(p => eff(p) > ceiling && allowedAbove.has(eff(p)))
+      .sort((a, b) => eff(a) - eff(b));                          // cheapest-premium first
 
     let capped;
     if (premium) {
