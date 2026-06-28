@@ -429,7 +429,15 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       const res = await fetch(CATALOGUE_URL + "/dove-converse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: session.id, history: historyRef.current, candidates, memory: memoryRef.current || "" }),
+        body: JSON.stringify({ session_id: session.id, history: historyRef.current, candidates, memory: memoryRef.current || "", brief: (() => {
+          const ab = activeBrief(stateRef.current);
+          if (!ab) return null;
+          const b = ab.business || {}, bud = b.budget || {};
+          return { type: ab.type, label: ab.label,
+                   headcount: (typeof b.headcount === "number" ? b.headcount : null),
+                   budget_ceiling: (typeof bud.ceiling === "number" ? bud.ceiling : null),
+                   budget_per: bud.per || "head", budget_open: !!bud.open };
+        })() }),
       });
       if (!res.ok) throw new Error("status " + res.status);
       const data = await res.json();
