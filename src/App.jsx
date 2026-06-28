@@ -16,17 +16,17 @@ const DARK = "#111111";
 
 // ── Rock Dove "Evergreen" skin (from Claude Design export) ────────────────────
 const RD = {
-  paper: "#F7F5F0", ink: "#2A2826", inkSoft: "#3A3633", inkMute: "#8C8377",
-  line: "#E4DED2", surface: "#FFFFFF", wordmark: "#4079AE",
-  accent: "#4079AE",      // Dove identity — dusty blue (the single accent)
-  secondary: "#2F5F8A",   // client identity — deep dusty blue
-  bubble: "#FBF8F2", bubbleLine: "#E4DED2",
+  paper: "#f9f4ea", ink: "#1b3d2e", inkSoft: "#444444", inkMute: "#6b6b6b",
+  line: "#e7e7e4", surface: "#ffffff", wordmark: "#8FB9E0",
+  accent: "#4e9d6c",      // Dove identity
+  secondary: "#2e6fcb",   // client identity
+  bubble: "#fbfaf6", bubbleLine: "#e8e3d4",
   serif: "'Source Serif 4', Georgia, serif",
   sans: "'Nunito', sans-serif",
 };
 // per-card tint, rotated by position in the shown set
-const RD_PIECE = ["#4079AE", "#2F5F8A", "#5E93C2"];
-const RD_PIECE_SOFT = ["#D6E2EE", "#DDE7EF", "#CDDCEC"];
+const RD_PIECE = ["#2e6fcb", "#4e9d6c", "#6f9fd8"];
+const RD_PIECE_SOFT = ["#d4e1f3", "#d6e6dc", "#dde8f4"];
 // load Nunito + Source Serif 4 once
 if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
   const l = document.createElement("link");
@@ -39,7 +39,7 @@ if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
 if (typeof document !== "undefined" && !document.getElementById("rd-skin-css")) {
   const st = document.createElement("style");
   st.id = "rd-skin-css";
-  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}@media (max-width:600px){.rd-msg{font-size:20px!important;line-height:1.7!important}}";
+  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}@media (max-width:600px){.rd-msg{font-size:19px!important;line-height:1.65!important}.rd-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important;margin-left:0!important;gap:12px!important}.rd-card-name{font-size:13px!important;line-height:1.25!important}.rd-card-price{font-size:14px!important}.rd-chip{font-size:13px!important}.rd-input{font-size:16px!important}.rd-you{font-size:16px!important}.rd-card-foot{flex-direction:column!important;align-items:stretch!important;gap:8px!important}.rd-card-foot button{width:100%!important;text-align:center!important}}";
   document.head.appendChild(st);
 }
 
@@ -542,7 +542,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     </span>
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
                   </div>
-                  <div className="rd-msg" style={{ fontFamily: RD.serif, fontSize: 19, fontWeight: 400, lineHeight: 1.7, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                  <div className="rd-msg" style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.6, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap" }}>{m.text}</div>
                 </div>
               ) : (
                 <div style={{ marginLeft: "auto", maxWidth: 500, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -550,12 +550,12 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.secondary }}>{(session.client_name || "You").split(" ")[0]}&nbsp;&nbsp;&middot;&nbsp;&nbsp;You</span>
                     <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 999, background: RD.secondary }} />
                   </div>
-                  <div style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 16, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                  <div className="rd-you" style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 15, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap" }}>{m.text}</div>
                 </div>
               )}
 
               {m.role === "dove" && m.products && m.products.length > 0 && (
-                <div style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
+                <div className="rd-cards" style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
                   {m.products.map((pid, ci) => {
                     const p = productById(pid);
                     if (!p) return null;
@@ -569,13 +569,13 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                           {p.tier && <span style={{ position: "absolute", top: 12, left: 12, fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fff", background: tint, padding: "5px 9px" }}>{p.tier}</span>}
                         </div>
                         <div style={{ padding: "16px 16px 18px", display: "flex", flexDirection: "column", flex: 1, borderTop: `1px solid ${RD.line}` }}>
-                          <div onClick={() => setDetail(p)} style={{ fontFamily: RD.serif, fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.18, cursor: "pointer", color: RD.ink }}>{p.name}</div>
-                          {p.brand && <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: RD.inkMute, marginTop: 7, lineHeight: 1.5 }}>{p.brand}</div>}
+                          <div className="rd-card-name" onClick={() => setDetail(p)} style={{ fontFamily: RD.serif, fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1.18, cursor: "pointer", color: RD.ink }}>{p.name}</div>
+                          
                           <div style={{ flex: 1, minHeight: 14 }} />
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${RD.line}` }}>
-                            <span style={{ fontSize: 16, fontWeight: 600, whiteSpace: "nowrap", color: RD.ink }}>Rs.{price.toLocaleString("en-IN")}</span>
+                          <div className="rd-card-foot" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${RD.line}` }}>
+                            <span className="rd-card-price" style={{ fontSize: 16, fontWeight: 600, whiteSpace: "nowrap", color: RD.ink }}>Rs.{price.toLocaleString("en-IN")}</span>
                             <button onClick={() => toggleHeart({ ...p, _price: price })}
-                              style={{ border: isH ? `1px solid ${tint}` : `1px solid ${RD.ink}`, background: isH ? tint : "transparent", color: isH ? "#fff" : RD.ink, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 13px", cursor: "pointer" }}>
+                              style={{ border: isH ? `1px solid ${tint}` : `1px solid ${RD.ink}`, background: isH ? tint : "transparent", color: isH ? "#fff" : RD.ink, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 13px", borderRadius: 999, cursor: "pointer" }}>
                               {isH ? "\u2713 Saved" : "\u2661 Save"}
                             </button>
                           </div>
@@ -611,8 +611,8 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               {m.role === "dove" && i === lastDoveIdx && m.chips && m.chips.length > 0 && !loading && (
                 <div style={{ marginLeft: 41, marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {m.chips.map((c, ci) => (
-                    <button key={ci} onClick={() => send(c)}
-                      style={{ fontFamily: RD.sans, fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: RD.inkSoft, background: RD.surface, border: `1px solid ${RD.line}`, padding: "8px 14px", cursor: "pointer" }}>
+                    <button key={ci} className="rd-chip" onClick={() => send(c)}
+                      style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", color: RD.inkSoft, background: RD.surface, border: `1px solid ${RD.line}`, padding: "8px 14px", cursor: "pointer" }}>
                       {c}
                     </button>
                   ))}
@@ -643,11 +643,12 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "16px 28px" }}>
           <div style={{ display: "flex", border: `1.5px solid ${RD.ink}`, background: RD.surface, borderRadius: 14, overflow: "hidden" }}>
             <input
+              className="rd-input"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
               placeholder="Tell Dove about the occasion, the headcount, the budget per head…"
-              style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 16, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
+              style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 15, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
             />
             <button onClick={() => send()} disabled={loading}
               style={{ width: 54, flexShrink: 0, border: "none", background: RD.secondary, color: "#fff", fontSize: 20, cursor: "pointer" }}>&rarr;</button>
@@ -671,7 +672,7 @@ function ProductDetail({ product: p, qty, hearted, toggleHeart, onClose }) {
     : `Rs.${perHead.toLocaleString("en-IN")}`;
   const box = Array.isArray(p.whats_in_box) ? p.whats_in_box : (p.whats_in_box ? [p.whats_in_box] : []);
   const specs = [];
-  if (p.brand) specs.push(["Maker", p.brand]);
+  
   if (p.tier) specs.push(["Tier", p.tier]);
   if (p.weight_grams) specs.push(["Weight", `${p.weight_grams} g`]);
   return (
@@ -695,7 +696,7 @@ function ProductDetail({ product: p, qty, hearted, toggleHeart, onClose }) {
             </div>
           )}
           <div style={{ fontFamily: RD.serif, fontSize: 30, fontWeight: 600, letterSpacing: "-0.015em", lineHeight: 1.1, marginTop: 14, color: RD.ink }}>{p.name}</div>
-          {p.brand && <div style={{ fontFamily: RD.sans, fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: RD.inkMute, marginTop: 8 }}>{p.brand}</div>}
+          
           <div style={{ fontFamily: RD.sans, fontSize: 13.5, fontWeight: 500, color: RD.inkMute, marginTop: 14, paddingBottom: 18, borderBottom: `1px solid ${RD.line}` }}>{priceLine}</div>
 
           {p.description && <div style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.62, color: RD.ink, marginTop: 20 }}>{p.description}</div>}
