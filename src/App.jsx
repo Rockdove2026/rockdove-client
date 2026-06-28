@@ -16,7 +16,7 @@ const DARK = "#111111";
 
 // ── Rock Dove "Evergreen" skin (from Claude Design export) ────────────────────
 const RD = {
-  paper: "#f8f6f0", ink: "#1b3d2e", inkSoft: "#444444", inkMute: "#6b6b6b",
+  paper: "#f9f4ea", ink: "#1b3d2e", inkSoft: "#444444", inkMute: "#6b6b6b",
   line: "#e7e7e4", surface: "#ffffff", wordmark: "#8FB9E0",
   accent: "#4e9d6c",      // Dove identity
   secondary: "#2e6fcb",   // client identity
@@ -33,6 +33,14 @@ if (typeof document !== "undefined" && !document.getElementById("rd-fonts")) {
   l.id = "rd-fonts"; l.rel = "stylesheet";
   l.href = "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap";
   document.head.appendChild(l);
+}
+// responsive header: as the viewport narrows, drop the subtitle, then the decor, so the
+// sticky header never overflows on phones (full decorated header on desktop/tablet)
+if (typeof document !== "undefined" && !document.getElementById("rd-skin-css")) {
+  const st = document.createElement("style");
+  st.id = "rd-skin-css";
+  st.textContent = "@media (max-width:720px){.rd-sub{display:none!important}}@media (max-width:560px){.rd-decor-h{display:none!important}}";
+  document.head.appendChild(st);
 }
 
 // Debug overlay: only when the URL carries ?debug=1. Never shows for real clients.
@@ -247,24 +255,26 @@ const REFINE_CHIPS = [
 // ── DOVE CHAT VIEW (?mode=chat) — conversational flow over /dove-converse ──────
 
 // ── Matisse cut-out decor flourish (Rock Dove brand shapes) ──────────────────
-function RockDoveDecor() {
+function RockDoveDecor({ compact = false }) {
+  const k = compact ? 0.66 : 1;
+  const w = (n) => Math.round(n * k);
   const s = { flexShrink: 0, height: "auto" };
   return (
-    <div aria-hidden="true" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20, flexWrap: "wrap", marginBottom: 0 }}>
+    <div aria-hidden="true" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: compact ? 13 : 20, flexWrap: compact ? "nowrap" : "wrap", marginBottom: 0 }}>
       {/* crescent — green */}
-      <svg viewBox="0 0 64 68" style={{ ...s, width: 26 }}><path d="M40 4 a30 30 0 1 0 0 60 a23 30 0 1 1 0 -60 z" fill="#2f9e6f" /></svg>
+      <svg viewBox="0 0 64 68" style={{ ...s, width: w(26) }}><path d="M40 4 a30 30 0 1 0 0 60 a23 30 0 1 1 0 -60 z" fill="#2f9e6f" /></svg>
       {/* 4-point star — gold */}
-      <svg viewBox="0 0 40 40" style={{ ...s, width: 22 }}><path d="M20 2 L24 16 L38 20 L24 24 L20 38 L16 24 L2 20 L16 16 Z" fill="#d9a23c" /></svg>
+      <svg viewBox="0 0 40 40" style={{ ...s, width: w(22) }}><path d="M20 2 L24 16 L38 20 L24 24 L20 38 L16 24 L2 20 L16 16 Z" fill="#d9a23c" /></svg>
       {/* almond leaf — magenta */}
-      <svg viewBox="0 0 60 60" style={{ ...s, width: 22 }}><path d="M30 2 C 50 16, 50 44, 30 58 C 10 44, 10 16, 30 2 Z" fill="#c84a7d" /></svg>
+      <svg viewBox="0 0 60 60" style={{ ...s, width: w(22) }}><path d="M30 2 C 50 16, 50 44, 30 58 C 10 44, 10 16, 30 2 Z" fill="#c84a7d" /></svg>
       {/* pomegranate — red */}
-      <svg viewBox="0 0 60 66" style={{ ...s, width: 24 }}><path d="M30 16 L24 4 L30 9 L36 4 Z" fill="#d93a2b" /><path d="M30 14 C 47 14, 56 28, 56 40 C 56 54, 44 62, 30 62 C 16 62, 4 54, 4 40 C 4 28, 13 14, 30 14 Z" fill="#d93a2b" /></svg>
+      <svg viewBox="0 0 60 66" style={{ ...s, width: w(24) }}><path d="M30 16 L24 4 L30 9 L36 4 Z" fill="#d93a2b" /><path d="M30 14 C 47 14, 56 28, 56 40 C 56 54, 44 62, 30 62 C 16 62, 4 54, 4 40 C 4 28, 13 14, 30 14 Z" fill="#d93a2b" /></svg>
       {/* half-circle bowl — periwinkle */}
-      <svg viewBox="0 0 64 34" style={{ ...s, width: 34 }}><path d="M2 4 A 30 30 0 0 0 62 4 Z" fill="#7b7fd0" /></svg>
+      <svg viewBox="0 0 64 34" style={{ ...s, width: w(34) }}><path d="M2 4 A 30 30 0 0 0 62 4 Z" fill="#7b7fd0" /></svg>
       {/* 5-point star — teal */}
-      <svg viewBox="0 0 60 58" style={{ ...s, width: 22 }}><path d="M30 2 L37 22 L58 22 L41 35 L47 56 L30 43 L13 56 L19 35 L2 22 L23 22 Z" fill="#1b6b6b" /></svg>
+      <svg viewBox="0 0 60 58" style={{ ...s, width: w(22) }}><path d="M30 2 L37 22 L58 22 L41 35 L47 56 L30 43 L13 56 L19 35 L2 22 L23 22 Z" fill="#1b6b6b" /></svg>
       {/* swallow — cobalt line */}
-      <svg viewBox="0 0 100 36" style={{ ...s, width: 48 }}><path d="M2 24 Q 24 2 44 22 Q 50 28 56 22 Q 76 2 98 24" fill="none" stroke="#2e6fcb" strokeWidth="4" strokeLinecap="round" /></svg>
+      <svg viewBox="0 0 100 36" style={{ ...s, width: w(48) }}><path d="M2 24 Q 24 2 44 22 Q 50 28 56 22 Q 76 2 98 24" fill="none" stroke="#2e6fcb" strokeWidth="4" strokeLinecap="round" /></svg>
     </div>
   );
 }
@@ -496,6 +506,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "0.2em", color: RD.wordmark }}>ROCK DOVE</span>
         <div style={{ width: 1, height: 22, background: RD.line }} />
         <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase", color: RD.inkMute }} className="rd-sub">Private Concierge&nbsp;&nbsp;&middot;&nbsp;&nbsp;{session.company || "Rock Dove"}</span>
+        <div className="rd-decor-h" style={{ marginLeft: "auto" }}><RockDoveDecor compact /></div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           {hearted.size > 0 && (
             <button onClick={submitShortlist} disabled={submitting}
@@ -510,7 +521,6 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       {/* Messages */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "40px 0 32px" }}>
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 28px", display: "flex", flexDirection: "column", gap: 40 }}>
-          <RockDoveDecor />
           {messages.map((m, i) => (
             <div key={i}>
               {m.role === "dove" ? (
@@ -535,7 +545,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               )}
 
               {m.role === "dove" && m.products && m.products.length > 0 && (
-                <div style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 240px))", gap: 14 }}>
+                <div style={{ marginLeft: 41, marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
                   {m.products.map((pid, ci) => {
                     const p = productById(pid);
                     if (!p) return null;
