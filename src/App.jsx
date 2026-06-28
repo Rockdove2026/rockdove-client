@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
 import SubmissionSummary from "./SubmissionSummary.jsx";
-import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters } from "./conversation_state.js";
+import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters, migrateState, activeBrief } from "./conversation_state.js";
 import { buildCandidates, findNamedMatches } from "./candidate_filter.js";
 
 const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
@@ -337,7 +337,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
     // from this client's server-side history instead.
     const saved = loadPersisted();
     if (saved && Array.isArray(saved.messages) && saved.messages.some(m => m.role === "user")) {
-      if (saved.state) stateRef.current = { ...stateRef.current, ...saved.state };
+      if (saved.state) stateRef.current = migrateState(saved.state);
       if (Array.isArray(saved.history)) historyRef.current = saved.history;
       if (saved.memory) memoryRef.current = saved.memory;
       setMessages(saved.messages);
@@ -392,7 +392,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
     setMessages(prev => [...prev, { role: "user", text }]);
     setLoading(true);
 
-    parseUserMessage(stateRef.current, text);
+    stateRef.current = parseUserMessage(stateRef.current, text) || stateRef.current;
     const filters = toCandidateFilters(stateRef.current);
     const qty = stateRef.current.headcount || 1;
 
@@ -433,7 +433,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       });
       if (!res.ok) throw new Error("status " + res.status);
       const data = await res.json();
-      mergeModelFilters(stateRef.current, data.filters || {});
+      stateRef.current = mergeModelFilters(stateRef.current, data.filters || {}) || stateRef.current;
       if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
       const msg = (data.message || "").trim() || "Tell me a little more — who are these for?";
       historyRef.current = [...historyRef.current, { role: "assistant", content: msg }];
@@ -449,6 +449,8 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           excludeFragile: !!filters.exclude_fragile,
           lightweight: !!filters.lightweight,
           lean: filters.lean || null,
+          per: filters.budget_per || "head",
+          brief: (() => { const ab = activeBrief(stateRef.current); return ab ? { count: Object.keys(stateRef.current.briefs || {}).length, type: ab.type, label: ab.label, status: ab.status } : null; })(),
           memory: !!memoryRef.current,
           candidateCount: candidates.length,
           candidates: candidates.map(c => ({ id: c.id, name: c.name, price: c.price, saved: !!c.shortlisted })),
@@ -583,6 +585,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                   </summary>
                   <div style={{ marginTop: 6, lineHeight: 1.55 }}>
                     <div><b>filters used →</b> headcount {String(m.debug.sent.headcount)} · budget {m.debug.sent.budget == null ? "—" : "₹" + Number(m.debug.sent.budget).toLocaleString("en-IN")} · premium {String(m.debug.sent.premium)} · excl.edible {String(m.debug.sent.excludeEdible)} · excl.fragile {String(m.debug.sent.excludeFragile)} · light {String(m.debug.sent.lightweight)} · lean {m.debug.sent.lean || "—"} · memory {String(m.debug.sent.memory)}</div>
+                    <div style={{ marginTop: 4 }}><b>brief →</b> {m.debug.sent.brief ? `${m.debug.sent.brief.count} brief(s) · active = ${m.debug.sent.brief.type} / “${m.debug.sent.brief.label}” (${m.debug.sent.brief.status}) · per ${m.debug.sent.per}` : "—"}</div>
                     <div style={{ marginTop: 4 }}><b>model returned filters →</b> {JSON.stringify(m.debug.got.modelFilters)}</div>
                     <div style={{ marginTop: 4 }}><b>show_products →</b> [{m.debug.got.show_products.join(", ") || "none"}]</div>
                     <div style={{ marginTop: 6 }}><b>candidates sent ({m.debug.sent.candidateCount}) — ♥ saved, maroon = shown →</b></div>
