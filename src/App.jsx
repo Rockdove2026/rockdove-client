@@ -436,6 +436,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           return { type: ab.type, label: ab.label,
                    headcount: (typeof b.headcount === "number" ? b.headcount : null),
                    budget_ceiling: (typeof bud.ceiling === "number" ? bud.ceiling : null),
+                   budget_floor: (typeof bud.floor === "number" ? bud.floor : null),
                    budget_per: bud.per || "head", budget_open: !!bud.open };
         })() }),
       });
@@ -458,10 +459,11 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       //   • "show all" means everything matching the brief — not just the 100 sent
       //     to the model — so it's rebuilt with no cap.
       const ceilingNum = (typeof filters.budget_ceiling === "number" && filters.budget_ceiling > 0) ? filters.budget_ceiling : null;
+      const floorNum = (typeof filters.budget_floor === "number" && filters.budget_floor > 0) ? filters.budget_floor : null;
       const perTotal = filters.budget_per === "total";
       const effPrice = c => (perTotal ? (c.price || 0) * qty : (c.price || 0));
-      const chosen = new Set([...namedNow, ...hearted]);          // saved or named — allowed over budget
-      const withinBudget = c => !ceilingNum || chosen.has(c.id) || effPrice(c) <= ceilingNum;
+      const chosen = new Set([...namedNow, ...hearted]);          // saved or named — allowed outside budget
+      const withinBudget = c => chosen.has(c.id) || ((!ceilingNum || effPrice(c) <= ceilingNum) && (!floorNum || effPrice(c) >= floorNum));
 
       const wantsAll = /\b(?:everything|every (?:option|piece|gift)|full (?:catalogue|catalog|range|list|selection)|whole (?:catalogue|catalog|range|list|selection)|entire (?:catalogue|catalog|range|selection))\b/i.test(text)
         || /\b(?:show|see|send|share|view|list|browse|give me|pull up)\b[^.?!]*\ball\b/i.test(text)
@@ -490,6 +492,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         sent: {
           headcount: qty,
           budget: filters.budget_ceiling ?? null,
+          floor: filters.budget_floor ?? null,
           premium: !!filters.premium_requested,
           excludeEdible: !!filters.exclude_edible,
           excludeFragile: !!filters.exclude_fragile,
@@ -631,7 +634,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     debug · sent {m.debug.sent.candidateCount} candidates · showed {m.debug.got.show_products.length}
                   </summary>
                   <div style={{ marginTop: 6, lineHeight: 1.55 }}>
-                    <div><b>filters used →</b> headcount {String(m.debug.sent.headcount)} · budget {m.debug.sent.budget == null ? "—" : "₹" + Number(m.debug.sent.budget).toLocaleString("en-IN")} · premium {String(m.debug.sent.premium)} · excl.edible {String(m.debug.sent.excludeEdible)} · excl.fragile {String(m.debug.sent.excludeFragile)} · light {String(m.debug.sent.lightweight)} · lean {m.debug.sent.lean || "—"} · memory {String(m.debug.sent.memory)}</div>
+                    <div><b>filters used →</b> headcount {String(m.debug.sent.headcount)} · budget {m.debug.sent.budget == null ? "—" : "₹" + Number(m.debug.sent.budget).toLocaleString("en-IN")} · floor {m.debug.sent.floor == null ? "—" : "₹" + Number(m.debug.sent.floor).toLocaleString("en-IN")} · premium {String(m.debug.sent.premium)} · excl.edible {String(m.debug.sent.excludeEdible)} · excl.fragile {String(m.debug.sent.excludeFragile)} · light {String(m.debug.sent.lightweight)} · lean {m.debug.sent.lean || "—"} · memory {String(m.debug.sent.memory)}</div>
                     <div style={{ marginTop: 4 }}><b>brief →</b> {m.debug.sent.brief ? `${m.debug.sent.brief.count} brief(s) · active = ${m.debug.sent.brief.type} / “${m.debug.sent.brief.label}” (${m.debug.sent.brief.status}) · per ${m.debug.sent.per}` : "—"}</div>
                     <div style={{ marginTop: 4 }}><b>model returned filters →</b> {JSON.stringify(m.debug.got.modelFilters)}</div>
                     <div style={{ marginTop: 4 }}><b>show_products →</b> [{m.debug.got.show_products.join(", ") || "none"}]</div>
