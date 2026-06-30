@@ -450,19 +450,35 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       // Dove proposes pieces via show_products, but it sometimes returns none — or
       // only a couple — while still describing a range in words. The client must
       // always see options, so the app guarantees them: at least 6 pieces, and the
-      // WHOLE filtered set (up to the candidate cap) when they ask for "all".
-      const modelShown = (Array.isArray(data.show_products) ? data.show_products : [])
-        .filter(id => candidates.some(c => c.id === id));
-      const candIds = candidates.map(c => c.id);
+      // WHOLE matching set when they ask for "all". Two rules hold throughout:
+      //   • never auto-show a piece ABOVE budget. The candidate pool deliberately
+      //     reserves a few premium (over-ceiling) pieces for the model to upsell;
+      //     the deterministic display filters those out. The ONLY over-budget pieces
+      //     allowed through are ones the client saved or named themselves.
+      //   • "show all" means everything matching the brief — not just the 100 sent
+      //     to the model — so it's rebuilt with no cap.
+      const ceilingNum = (typeof filters.budget_ceiling === "number" && filters.budget_ceiling > 0) ? filters.budget_ceiling : null;
+      const perTotal = filters.budget_per === "total";
+      const effPrice = c => (perTotal ? (c.price || 0) * qty : (c.price || 0));
+      const chosen = new Set([...namedNow, ...hearted]);          // saved or named — allowed over budget
+      const withinBudget = c => !ceilingNum || chosen.has(c.id) || effPrice(c) <= ceilingNum;
+
       const wantsAll = /\b(?:everything|every (?:option|piece|gift)|full (?:catalogue|catalog|range|list|selection)|whole (?:catalogue|catalog|range|list|selection)|entire (?:catalogue|catalog|range|selection))\b/i.test(text)
         || /\b(?:show|see|send|share|view|list|browse|give me|pull up)\b[^.?!]*\ball\b/i.test(text)
         || /\ball\b[^.?!]*\b(?:options|gifts|pieces|products|items|catalogue|catalog)\b/i.test(text);
+
+      // For "show all", rebuild the matching set uncapped so nothing is left out.
+      const pool = wantsAll ? buildCandidates(all, filters, 100000, text, stickyIds) : candidates;
+      const poolOkIds = pool.filter(withinBudget).map(c => c.id);   // within budget (or saved/named)
+
+      const modelShown = (Array.isArray(data.show_products) ? data.show_products : [])
+        .filter(id => poolOkIds.includes(id));         // model's picks, minus anything over budget
       let shownIds;
       if (wantsAll) {
-        shownIds = candIds;                          // the entire filtered set, up to the 100 cap
+        shownIds = poolOkIds;                          // everything matching the brief, uncapped
       } else {
         shownIds = [...modelShown];
-        for (const id of candIds) {                  // top up to a minimum of 6, in candidate order
+        for (const id of poolOkIds) {                  // top up to a minimum of 6, within budget
           if (shownIds.length >= 6) break;
           if (!shownIds.includes(id)) shownIds.push(id);
         }
