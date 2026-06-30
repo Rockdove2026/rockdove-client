@@ -421,7 +421,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
     // so their shortlist is always showable (e.g. "show me what I saved" returns all
     // of them, not just whichever happened to match the current brief filter).
     const stickyIds = [...new Set([...stickyRef.current.keys(), ...hearted])];
-    const candidates = buildCandidates(all, filters, 40, text, stickyIds);
+    const candidates = buildCandidates(all, filters, 100, text, stickyIds);
 
     historyRef.current = [...historyRef.current, { role: "user", content: text }];
 
@@ -446,6 +446,28 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       const msg = (data.message || "").trim() || "Tell me a little more — who are these for?";
       historyRef.current = [...historyRef.current, { role: "assistant", content: msg }];
 
+      // ── What the client actually sees as cards ──────────────────────────
+      // Dove proposes pieces via show_products, but it sometimes returns none — or
+      // only a couple — while still describing a range in words. The client must
+      // always see options, so the app guarantees them: at least 6 pieces, and the
+      // WHOLE filtered set (up to the candidate cap) when they ask for "all".
+      const modelShown = (Array.isArray(data.show_products) ? data.show_products : [])
+        .filter(id => candidates.some(c => c.id === id));
+      const candIds = candidates.map(c => c.id);
+      const wantsAll = /\b(?:everything|every (?:option|piece|gift)|full (?:catalogue|catalog|range|list|selection)|whole (?:catalogue|catalog|range|list|selection)|entire (?:catalogue|catalog|range|selection))\b/i.test(text)
+        || /\b(?:show|see|send|share|view|list|browse|give me|pull up)\b[^.?!]*\ball\b/i.test(text)
+        || /\ball\b[^.?!]*\b(?:options|gifts|pieces|products|items|catalogue|catalog)\b/i.test(text);
+      let shownIds;
+      if (wantsAll) {
+        shownIds = candIds;                          // the entire filtered set, up to the 100 cap
+      } else {
+        shownIds = [...modelShown];
+        for (const id of candIds) {                  // top up to a minimum of 6, in candidate order
+          if (shownIds.length >= 6) break;
+          if (!shownIds.includes(id)) shownIds.push(id);
+        }
+      }
+
       // Debug snapshot (only assembled when ?debug=1): exactly what was sent to the
       // model this turn and what it returned — collapses the screenshot→SQL loop.
       const debugInfo = DEBUG_MODE ? {
@@ -464,7 +486,8 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           candidates: candidates.map(c => ({ id: c.id, name: c.name, price: c.price, saved: !!c.shortlisted })),
         },
         got: {
-          show_products: Array.isArray(data.show_products) ? data.show_products : [],
+          show_products: shownIds,
+          modelReturned: Array.isArray(data.show_products) ? data.show_products : [],
           modelFilters: data.filters || {},
         },
       } : null;
@@ -472,7 +495,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       setMessages(prev => [...prev, {
         role: "dove",
         text: msg,
-        products: Array.isArray(data.show_products) ? data.show_products : [],
+        products: shownIds,
         chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
         debug: debugInfo,
       }]);
@@ -483,7 +506,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       // just discussed survives the next few context-light turns ("yes", "and
       // the price?") instead of falling out of candidates and being forgotten.
       const STICKY_TURNS = 3;
-      const shownNow = Array.isArray(data.show_products) ? data.show_products : [];
+      const shownNow = shownIds;
       // Pieces Dove NAMES in this reply — bold OR plain prose — resolved to real
       // catalogue ids. A product Dove discusses by name (from memory, history, or a
       // prose mention) has no id of its own; pinning it here keeps it in candidates so
@@ -596,6 +619,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     <div style={{ marginTop: 4 }}><b>brief →</b> {m.debug.sent.brief ? `${m.debug.sent.brief.count} brief(s) · active = ${m.debug.sent.brief.type} / “${m.debug.sent.brief.label}” (${m.debug.sent.brief.status}) · per ${m.debug.sent.per}` : "—"}</div>
                     <div style={{ marginTop: 4 }}><b>model returned filters →</b> {JSON.stringify(m.debug.got.modelFilters)}</div>
                     <div style={{ marginTop: 4 }}><b>show_products →</b> [{m.debug.got.show_products.join(", ") || "none"}]</div>
+                    <div style={{ marginTop: 4 }}><b>model returned →</b> [{(m.debug.got.modelReturned || []).join(", ") || "none"}]</div>
                     <div style={{ marginTop: 6 }}><b>candidates sent ({m.debug.sent.candidateCount}) — ♥ saved, maroon = shown →</b></div>
                     <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 2, whiteSpace: "pre" }}>
                       {m.debug.sent.candidates.map(c => (
