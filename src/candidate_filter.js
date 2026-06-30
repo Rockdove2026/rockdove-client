@@ -97,6 +97,12 @@ export function buildCandidates(catalog, filters = {}, max = MAX_CANDIDATES, que
     if (restricted.length) pool = restricted;
   }
 
+  // Budget floor: when the client wants pieces AT OR ABOVE a figure ("₹5,000 and
+  // above"), drop everything cheaper. Applies in every branch below, with or without
+  // a ceiling, and respects per-total pricing via eff().
+  const floor = filters.budget_floor || null;
+  if (floor) pool = pool.filter(p => eff(p) >= floor);
+
   let base;
   if (pool.length === 0) {
     base = [];
