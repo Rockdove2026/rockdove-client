@@ -25,7 +25,7 @@ const generateBriefId = () => "brief_" + (Date.now().toString(36)) + "_" + (_seq
 function emptyBusiness() {
   return {
     headcount: null,
-    budget: { ceiling: null, per: "head", open: false },
+    budget: { ceiling: null, floor: null, per: "head", open: false },
     exclude_edible: false,
     exclude_fragile: false,
     lightweight: false,
@@ -234,15 +234,28 @@ function extractInto(b, text) {
   const z = b.business;
   let touchedBudget = false, singleSignal = false;
 
-  // Budget ceiling
+  // Budget floor — "above / over / more than / at least / minimum / X and above / X+".
+  // A floor is a MINIMUM price, and it must be read BEFORE the ceiling: the bare
+  // "rs 5000" pattern below would otherwise mistake "rs 5000 and above" for a maximum.
+  let floorSet = false;
+  const fm =
+    t.match(/(?:above|over|more\s+than|at\s+least|minimum(?:\s+of)?|north\s+of|upwards?\s+of|no\s+less\s+than|starting\s+(?:at|from))\s*₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})/) ||
+    t.match(/₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})\s*(?:\+|and\s+above|or\s+above|and\s+(?:up|over|higher|more)|or\s+more|plus|onwards?|and\s+upwards?)/);
+  if (fm) {
+    const val = parseInt(fm[1].replace(/,/g, ""), 10);
+    if (val >= 300 && val <= 1000000) { z.budget.floor = val; z.budget.open = false; touchedBudget = true; floorSet = true; }
+  }
+
+  // Budget ceiling. The bare "₹/rs NNNN" match is skipped when this turn set a floor,
+  // so "above rs 5000" doesn't also register 5000 as a maximum.
   let m =
-    t.match(/(?:₹|rs\.?\s*|inr\s*)\s*(\d[\d,]{2,})/) ||
+    (!floorSet && t.match(/(?:₹|rs\.?\s*|inr\s*)\s*(\d[\d,]{2,})/)) ||
     t.match(/(?:under|around|within|upto|up to|max|budget(?:\s*(?:is|of|=|:))?)\s*₹?\s*(\d[\d,]{2,})/) ||
     t.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget)/);
   if (m) {
     const val = parseInt(m[1].replace(/,/g, ""), 10);
     if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
-  } else {
+  } else if (!floorSet) {
     const k = t.match(/(\d+(?:\.\d+)?)\s*k\b/);
     if (k && /(budget|each|under|around|within|per|head|person)/.test(t)) {
       const val = Math.round(parseFloat(k[1]) * 1000);
@@ -259,7 +272,8 @@ function extractInto(b, text) {
   }
 
   // Headcount
-  const q = t.match(/(\d[\d,]{0,5})\s*(?:senior|junior|people|persons?|recipients?|guests?|employees?|clients?|bankers?|staff|heads?|colleagues?|team|members?|gifts?|boxes?|sets?|pieces?|orders?|items?|baskets?|kits?|bottles?|jars?|tins?|hampers?|units?|pax)/);
+  const q = t.match(/(\d[\d,]{0,5})\s*(?:senior|junior|people|persons?|recipients?|guests?|employees?|clients?|bankers?|staff|heads?|colleagues?|team|members?|gifts?|boxes?|sets?|pieces?|orders?|items?|baskets?|kits?|bottles?|jars?|tins?|hampers?|units?|pax|quantity|quantities|qty|count|volume)/)
+        || t.match(/(?:quantity|quantities|qty|count|volume|headcount|head\s*count)\s*(?:requirement\s*)?(?:of|:|=|is|for)?\s*(\d[\d,]{0,5})/);
   if (q) { const val = parseInt(q[1].replace(/,/g, ""), 10); if (val >= 1 && val <= 1000000) z.headcount = val; }
 
   // Single-gift signal
@@ -396,7 +410,8 @@ export function mergeModelFilters(state, modelFilters = {}) {
   const z = b.business;
 
   if (typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) { z.budget.ceiling = modelFilters.budget_ceiling; z.budget.open = false; }
-  if (modelFilters.budget_open === true) { z.budget.ceiling = null; z.budget.open = true; }
+  if (typeof modelFilters.budget_floor === "number" && modelFilters.budget_floor > 0) { z.budget.floor = modelFilters.budget_floor; z.budget.open = false; }
+  if (modelFilters.budget_open === true) { z.budget.ceiling = null; z.budget.floor = null; z.budget.open = true; }
   if (typeof modelFilters.headcount === "number" && modelFilters.headcount >= 1 && b.type !== "single-gift") z.headcount = modelFilters.headcount;
   if (modelFilters.exclude_edible === true) z.exclude_edible = true;
   if (modelFilters.exclude_fragile === true) z.exclude_fragile = true;
@@ -410,10 +425,11 @@ export function mergeModelFilters(state, modelFilters = {}) {
 // ── toCandidateFilters — shape the ACTIVE brief for buildCandidates ───────────
 export function toCandidateFilters(state) {
   const b = activeBrief(state);
-  if (!b) return { budget_ceiling: null, headcount: null, exclude_edible: false, exclude_fragile: false, lightweight: false, premium_requested: false, lean: "balanced", budget_per: "head" };
+  if (!b) return { budget_ceiling: null, budget_floor: null, headcount: null, exclude_edible: false, exclude_fragile: false, lightweight: false, premium_requested: false, lean: "balanced", budget_per: "head" };
   const z = b.business;
   return {
     budget_ceiling: z.budget.ceiling,
+    budget_floor: z.budget.floor,
     headcount: z.headcount,
     exclude_edible: z.exclude_edible,
     exclude_fragile: z.exclude_fragile,
@@ -444,6 +460,7 @@ export function migrateState(persisted) {
   const b = newBrief(hc === 1 ? "single-gift" : (hc != null && hc > 1 ? "event" : "unassigned"), "Restored brief");
   b.business.headcount = hc;
   b.business.budget.ceiling = (typeof persisted.budget_ceiling === "number") ? persisted.budget_ceiling : null;
+  b.business.budget.floor = (typeof persisted.budget_floor === "number") ? persisted.budget_floor : null;
   b.business.budget.per = hc === 1 ? "total" : "head";
   b.business.exclude_edible = !!persisted.exclude_edible;
   b.business.exclude_fragile = !!persisted.exclude_fragile;
