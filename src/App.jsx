@@ -393,6 +393,30 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
     setLoading(true);
 
     stateRef.current = parseUserMessage(stateRef.current, text) || stateRef.current;
+
+    // ── Clarify turn: answered deterministically, no model call ─────────────
+    // The router held this message because more than one brief is open and the
+    // text didn't say which it belongs to. Which-brief is conversation
+    // STRUCTURE — the app's job, never the model's — so ask the question
+    // directly, offer the open briefs as tappable chips, and show no cards
+    // (cards priced off the wrong brief's budget look broken). The held
+    // message is stashed in state and is applied to whichever brief the
+    // client picks on the next turn.
+    if (stateRef.current.pending_clarify && stateRef.current.pending_text) {
+      const liveLabels = Object.values(stateRef.current.briefs || {})
+        .filter(b => b.status !== "resolved")
+        .map(b => b.label || "Untitled brief");
+      setMessages(prev => [...prev, {
+        role: "dove",
+        text: liveLabels.length === 2
+          ? `Of course — should that apply to ${liveLabels[0]}, or to ${liveLabels[1]}? Tap one and I'll take it from there.`
+          : `Of course — which of these should that apply to: ${liveLabels.join(", ")}? Tap one and I'll take it from there.`,
+        chips: liveLabels,
+      }]);
+      setLoading(false);
+      return;
+    }
+
     const filters = toCandidateFilters(stateRef.current);
     const qty = stateRef.current.headcount || 1;
 
