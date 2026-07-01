@@ -246,12 +246,15 @@ function extractInto(b, text) {
     if (val >= 300 && val <= 1000000) { z.budget.floor = val; z.budget.open = false; touchedBudget = true; floorSet = true; }
   }
 
-  // Budget ceiling. The bare "₹/rs NNNN" match is skipped when this turn set a floor,
-  // so "above rs 5000" doesn't also register 5000 as a maximum.
+  // Budget ceiling. All ceiling patterns run against `tc` — the text with any floor
+  // phrase erased — so "budget ₹5,000 and above" can't also read ₹5,000 as a maximum
+  // (the word "budget" survives but its number is gone). A genuine band in one message
+  // ("above 3,000, under 8,000") still works: only the floor phrase is removed.
+  const tc = fm ? t.replace(fm[0], " ") : t;
   let m =
-    (!floorSet && t.match(/(?:₹|rs\.?\s*|inr\s*)\s*(\d[\d,]{2,})/)) ||
-    t.match(/(?:under|around|within|upto|up to|max|budget(?:\s*(?:is|of|=|:))?)\s*₹?\s*(\d[\d,]{2,})/) ||
-    t.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget)/);
+    (!floorSet && tc.match(/(?:₹|rs\.?\s*|inr\s*)\s*(\d[\d,]{2,})/)) ||
+    tc.match(/(?:under|around|within|upto|up to|max|budget(?:\s*(?:is|of|=|:))?)\s*₹?\s*(\d[\d,]{2,})/) ||
+    tc.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget)/);
   if (m) {
     const val = parseInt(m[1].replace(/,/g, ""), 10);
     if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
