@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
 import SubmissionSummary from "./SubmissionSummary.jsx";
-import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters, migrateState, activeBrief } from "./conversation_state.js";
+import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters, migrateState, activeBrief, isEmptySeed } from "./conversation_state.js";
 import { buildCandidates, findNamedMatches } from "./candidate_filter.js";
 
 const CATALOGUE_URL = import.meta.env.VITE_CATALOGUE_SERVICE_URL ||
@@ -216,7 +216,13 @@ function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
   try {
     const match = tiers.filter(t => qty >= t.min_qty && (t.max_qty===null||qty<=t.max_qty)).sort((a,b)=>b.min_qty-a.min_qty)[0];
-    return match ? parseFloat(match.price_per_unit) : parseFloat(tiers[0].price_per_unit);
+    if (match) return parseFloat(match.price_per_unit);
+    // No tier covers this qty (e.g. qty 1 against a catalogue whose tiers start
+    // at 25). Fall back to the SMALLEST-quantity tier — deterministically —
+    // instead of tiers[0], which depends on database row order and made the
+    // same product show different prices on different turns.
+    const smallest = tiers.slice().sort((a,b)=>a.min_qty-b.min_qty)[0];
+    return parseFloat(smallest.price_per_unit);
   } catch { return 0; }
 }
 
@@ -509,6 +515,14 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           if (!shownIds.includes(id)) shownIds.push(id);
         }
       }
+
+      // On a brand-new EMPTY brief (a divergence like "I also need another
+      // gift"), Dove is asking discovery questions — filling the reply with six
+      // generic pieces priced against no budget only distracts. On an empty
+      // brief, show cards only when the client actually asked to browse; once
+      // the brief has any substance, the at-least-6 guarantee applies as before.
+      const wantsBrowse = /\b(?:show|see|view|browse|display|suggest|recommend|options?|ideas?|pieces|catalogue|catalog)\b/i.test(text);
+      if (isEmptySeed(activeBrief(stateRef.current)) && !wantsBrowse && !wantsAll) shownIds = [];
 
       // Debug snapshot (only assembled when ?debug=1): exactly what was sent to the
       // model this turn and what it returned — collapses the screenshot→SQL loop.
