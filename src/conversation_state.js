@@ -57,7 +57,7 @@ export function activeBrief(state) {
 const briefsOf = (s) => (s && s.briefs ? Object.values(s.briefs) : []);
 const liveBriefs = (s) => briefsOf(s).filter((b) => b.status !== "resolved");
 
-function isEmptySeed(b) {
+export function isEmptySeed(b) {
   if (!b) return false;
   const z = b.business;
   return b.type === "unassigned" && z.headcount == null && z.budget.ceiling == null &&
