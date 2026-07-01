@@ -344,6 +344,39 @@ export function parseUserMessage(state, text) {
   if (!state || !state.briefs) state = migrateState(state);
   ensureActive(state);
 
+  // ── Clarify-answer resolution ────────────────────────────────────────────
+  // When the previous turn asked "which brief is this for?", the reply is
+  // matched against the FULL brief labels first. Label words like "event" are
+  // stopwords in general routing (deliberately, to prevent accidental brief
+  // switches), so a tapped chip ("Event") or a phrase like "the event one"
+  // must be resolved here, not by the general router. On a match: switch to
+  // that brief, apply the HELD message to it, then apply this turn's text on
+  // top (so "the event one, but under 9,000" lets the newer number win).
+  const heldText = state.pending_clarify ? (state.pending_text || null) : null;
+  if (heldText) {
+    const t0 = (text || "").toLowerCase();
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const live = liveBriefs(state).slice().sort((a, b) => (b.label || "").length - (a.label || "").length);
+    const target = live.find((br) => br.label && new RegExp(`\\b${esc(br.label.toLowerCase())}\\b`).test(t0));
+    if (target) {
+      const a = activeBrief(state);
+      if (a && a.id !== target.id) a.status = "parked";
+      state.active_brief_id = target.id;
+      target.status = "active";
+      const psig = extractInto(target, heldText);
+      typeUpgrade(target, psig);
+      const sig2 = extractInto(target, text);
+      typeUpgrade(target, sig2);
+      if ((target.label === "Initial brief" || target.label === "New brief") && target.type !== "unassigned") {
+        target.label = (target.topicTokens && target.topicTokens.length) ? target.topicTokens.slice(0, 3).map(cap).join(" ") : (target.type === "single-gift" ? "Single gift" : "Event");
+      }
+      state.pending_clarify = false;
+      state.pending_text = null;
+      syncFlat(state);
+      return state;
+    }
+  }
+
   const routing = routeIntent(state, text);
 
   if (routing.lifecycle === "resolve-all") {
@@ -352,6 +385,7 @@ export function parseUserMessage(state, text) {
     state.briefs[fresh.id] = fresh;
     state.active_brief_id = fresh.id;
     state.pending_clarify = false;
+    state.pending_text = null;
     syncFlat(state);
     return state;
   }
@@ -359,10 +393,11 @@ export function parseUserMessage(state, text) {
     const a = activeBrief(state);
     if (a) { a.type = "unassigned"; a.business = emptyBusiness(); a.retrieval = { sticky: {}, shown: [], dismissed: [] }; a.recipient = null; a.topicTokens = []; }
     state.pending_clarify = false;
+    state.pending_text = null;
     syncFlat(state);
     return state;
   }
-  if (routing.clarify) { state.pending_clarify = true; return state; }
+  if (routing.clarify) { state.pending_clarify = true; state.pending_text = text; return state; }
 
   if (routing.op === "CREATE") {
     let target = activeBrief(state);
@@ -387,6 +422,11 @@ export function parseUserMessage(state, text) {
 
   const b = activeBrief(state);
   if (!b) { syncFlat(state); return state; }
+  // A held clarify message rides along only when this turn plainly answered it
+  // (an explicit switch, e.g. "the first one"); anything else drops it rather
+  // than guessing which brief the client meant.
+  if (heldText && routing.op === "SWITCH") { const psig = extractInto(b, heldText); typeUpgrade(b, psig); }
+  state.pending_text = null;
   const sig = extractInto(b, text);
   // fold any topic tokens from this turn into the brief (helps later switches)
   if (b.type !== "unassigned" || sig) {
