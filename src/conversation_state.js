@@ -230,7 +230,18 @@ export function routeIntent(state, text) {
 
 // ── v8 extraction, preserved — writes into a brief.business + reports signals ──
 function extractInto(b, text) {
-  const t = (text || "").toLowerCase();
+  // Normalisation (Phase 5.1 + 5.2), applied before any budget pattern runs:
+  //  1. Negated maxima — "not/no more than", "not over/above", "should not
+  //     exceed", "shouldn't go beyond" — are CEILINGS. Rewrite the whole
+  //     negated phrase to "under" so the floor regex below can never see the
+  //     "more than X" inside it. "no less than" is untouched (still a floor).
+  //  2. Indian units — "1.5 lakh"/"lac" ×100,000, "2 crore"/"cr" ×10,000,000 —
+  //     expand to plain digits so the existing ₹/floor/ceiling patterns match.
+  const t = (text || "").toLowerCase()
+    .replace(/\b(?:no|not|can(?:no|')?t|cannot|won'?t|shouldn'?t|should\s+not|must\s+not|doesn'?t|does\s+not)\s+(?:be\s+|go\s+)?(?:more\s+than|over|above|exceed(?:ing)?|higher\s+than|beyond|past)\b/g, "under")
+    .replace(/\bnot\s+to\s+exceed\b/g, "under")
+    .replace(/(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)\b/g, (_, n) => String(Math.round(parseFloat(n) * 100000)))
+    .replace(/(\d+(?:\.\d+)?)\s*(?:crores?|cr)\b/g, (_, n) => String(Math.round(parseFloat(n) * 10000000)));
   const z = b.business;
   let touchedBudget = false, singleSignal = false;
 
@@ -254,7 +265,7 @@ function extractInto(b, text) {
   let m =
     (!floorSet && tc.match(/(?:₹|rs\.?\s*|inr\s*)\s*(\d[\d,]{2,})/)) ||
     tc.match(/(?:under|around|within|upto|up to|max|budget(?:\s*(?:is|of|=|:))?)\s*₹?\s*(\d[\d,]{2,})/) ||
-    tc.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget)/);
+    tc.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget|(?:in\s+)?total|overall|altogether)/);
   if (m) {
     const val = parseInt(m[1].replace(/,/g, ""), 10);
     if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
