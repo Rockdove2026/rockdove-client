@@ -368,7 +368,8 @@ export function parseUserMessage(state, text) {
       const sig2 = extractInto(target, text);
       typeUpgrade(target, sig2);
       if ((target.label === "Initial brief" || target.label === "New brief") && target.type !== "unassigned") {
-        target.label = (target.topicTokens && target.topicTokens.length) ? target.topicTokens.slice(0, 3).map(cap).join(" ") : (target.type === "single-gift" ? "Single gift" : "Event");
+        const base = (target.topicTokens && target.topicTokens.length) ? target.topicTokens.slice(0, 3).map(cap).join(" ") : (target.type === "single-gift" ? "Single gift" : "Event");
+        target.label = uniqueLabel(state, base, target.id);
       }
       state.pending_clarify = false;
       state.pending_text = null;
@@ -397,7 +398,14 @@ export function parseUserMessage(state, text) {
     syncFlat(state);
     return state;
   }
-  if (routing.clarify) { state.pending_clarify = true; state.pending_text = text; return state; }
+  if (routing.clarify) {
+    state.pending_clarify = true;
+    // Accumulate: a second bare message before the client answers must not
+    // silently erase the first ("for 200 people" then "budget 2,000" — both
+    // apply once a brief is picked; later numbers win per field).
+    state.pending_text = state.pending_text ? state.pending_text + ". " + text : text;
+    return state;
+  }
 
   if (routing.op === "CREATE") {
     let target = activeBrief(state);
@@ -412,8 +420,8 @@ export function parseUserMessage(state, text) {
     target.recipient = routing.recipient || target.recipient;
     const tt = new Set([...(target.topicTokens || []), ...topicTokensFromText((text || "").toLowerCase())]);
     target.topicTokens = [...tt];
-    if (routing.recipient) target.label = cap(routing.recipient) + " gift";
-    else if (target.topicTokens.length) target.label = target.topicTokens.slice(0, 3).map(cap).join(" ");
+    if (routing.recipient) target.label = uniqueLabel(state, cap(routing.recipient) + " gift", target.id);
+    else if (target.topicTokens.length) target.label = uniqueLabel(state, target.topicTokens.slice(0, 3).map(cap).join(" "), target.id);
   } else if (routing.op === "SWITCH" && routing.targetId && state.briefs[routing.targetId]) {
     const a = activeBrief(state); if (a) a.status = "parked";
     state.active_brief_id = routing.targetId;
@@ -435,7 +443,8 @@ export function parseUserMessage(state, text) {
   }
   typeUpgrade(b, sig);
   if ((b.label === "Initial brief" || b.label === "New brief") && b.type !== "unassigned") {
-    b.label = (b.topicTokens && b.topicTokens.length) ? b.topicTokens.slice(0, 3).map(cap).join(" ") : (b.type === "single-gift" ? "Single gift" : "Event");
+    const base = (b.topicTokens && b.topicTokens.length) ? b.topicTokens.slice(0, 3).map(cap).join(" ") : (b.type === "single-gift" ? "Single gift" : "Event");
+    b.label = uniqueLabel(state, base, b.id);
   }
   state.pending_clarify = false;
   syncFlat(state);
@@ -443,6 +452,15 @@ export function parseUserMessage(state, text) {
 }
 
 function cap(s) { return (s || "").split(/\s+/).map((w) => w ? w[0].toUpperCase() + w.slice(1) : w).join(" "); }
+
+// Brief labels must be unique among unresolved briefs: they are the handles the
+// client taps in clarify chips and the phrases the clarify answer is matched
+// against, so "Event" vs "Event" would be unanswerable. Suffix a counter.
+function uniqueLabel(state, base, selfId) {
+  let label = base, n = 2;
+  while (briefsOf(state).some((x) => x.id !== selfId && x.status !== "resolved" && x.label === label)) label = base + " " + (n++);
+  return label;
+}
 
 // ── mergeModelFilters — per-brief, null-safe (v8 invariant 10 preserved) ──────
 export function mergeModelFilters(state, modelFilters = {}) {
