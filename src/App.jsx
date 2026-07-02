@@ -423,6 +423,9 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       return;
     }
 
+    // Captured BEFORE the backend call: the model's merged filters can plant
+    // numbers into this brief mid-turn, so emptiness must be judged at send time.
+    const wasEmptySeedAtSend = isEmptySeed(activeBrief(stateRef.current));
     const filters = toCandidateFilters(stateRef.current);
     const qty = stateRef.current.headcount || 1;
 
@@ -472,7 +475,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       });
       if (!res.ok) throw new Error("status " + res.status);
       const data = await res.json();
-      stateRef.current = mergeModelFilters(stateRef.current, data.filters || {}) || stateRef.current;
+      stateRef.current = mergeModelFilters(stateRef.current, data.filters || {}, text) || stateRef.current;
       if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
       const msg = (data.message || "").trim() || "Tell me a little more — who are these for?";
       historyRef.current = [...historyRef.current, { role: "assistant", content: msg }];
@@ -522,7 +525,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       // brief, show cards only when the client actually asked to browse; once
       // the brief has any substance, the at-least-6 guarantee applies as before.
       const wantsBrowse = /\b(?:show|see|view|browse|display|suggest|recommend|options?|ideas?|pieces|catalogue|catalog)\b/i.test(text);
-      if (isEmptySeed(activeBrief(stateRef.current)) && !wantsBrowse && !wantsAll) shownIds = [];
+      if (wasEmptySeedAtSend && !wantsBrowse && !wantsAll) shownIds = [];
 
       // Debug snapshot (only assembled when ?debug=1): exactly what was sent to the
       // model this turn and what it returned — collapses the screenshot→SQL loop.
@@ -704,6 +707,10 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
 
           {loading && (
             <div>
+              {/* Keyframes injected here so the indicator never depends on an
+                  external stylesheet — the "td" class alone rendered 0×0
+                  invisible spans, which is why the pause looked like a hang. */}
+              <style>{`@keyframes doveThinking { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }`}</style>
               <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
                 <span style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 999, background: RD.accent, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2.5 }}>
                   <span style={{ width: 7, height: 7, borderRadius: 999, background: "#fff" }} />
@@ -711,8 +718,11 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                 </span>
                 <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
               </div>
-              <div style={{ paddingLeft: 41, display: "flex", gap: 4 }}>
-                {[0, 1, 2].map(d => <span key={d} className="td" style={{ animationDelay: `${d * 0.2}s` }}></span>)}
+              <div style={{ paddingLeft: 41, display: "flex", alignItems: "center", gap: 6 }}>
+                {[0, 1, 2].map(d => (
+                  <span key={d} style={{ width: 7, height: 7, borderRadius: "50%", background: RD.accent, display: "inline-block", animation: "doveThinking 1.2s ease-in-out infinite", animationDelay: `${d * 0.2}s` }}></span>
+                ))}
+                <span style={{ marginLeft: 8, fontFamily: "'PT Serif',Georgia,serif", fontStyle: "italic", fontSize: 14, color: RD.accent, opacity: 0.8 }}>finding the right pieces&hellip;</span>
               </div>
             </div>
           )}
