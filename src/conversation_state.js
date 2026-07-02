@@ -463,17 +463,26 @@ function uniqueLabel(state, base, selfId) {
 }
 
 // ── mergeModelFilters — per-brief, null-safe (v8 invariant 10 preserved) ──────
-export function mergeModelFilters(state, modelFilters = {}) {
+export function mergeModelFilters(state, modelFilters = {}, userText = "") {
   if (!state || !state.briefs) state = migrateState(state);
   ensureActive(state);
   const b = activeBrief(state);
   if (!b) return state;
   const z = b.business;
 
-  if (typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) { z.budget.ceiling = modelFilters.budget_ceiling; z.budget.open = false; }
-  if (typeof modelFilters.budget_floor === "number" && modelFilters.budget_floor > 0) { z.budget.floor = modelFilters.budget_floor; z.budget.open = false; }
+  // Echo guard: on a brand-new EMPTY brief, the model tends to repeat numbers
+  // remembered from ANOTHER brief's conversation (seen live: headcount 1000 +
+  // floor 5000 planted into a fresh "I also need another gift" brief). If the
+  // client's own message contained no digits, quantitative model filters are
+  // ignored for an empty seed — stated numbers come from the parser. Known
+  // trade-off: "a couple hundred people" on a fresh brief loses the model's
+  // inferred headcount; revisit in the brief-routing design session.
+  const echoGuard = isEmptySeed(b) && !/\d/.test(userText || "");
+
+  if (!echoGuard && typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) { z.budget.ceiling = modelFilters.budget_ceiling; z.budget.open = false; }
+  if (!echoGuard && typeof modelFilters.budget_floor === "number" && modelFilters.budget_floor > 0) { z.budget.floor = modelFilters.budget_floor; z.budget.open = false; }
   if (modelFilters.budget_open === true) { z.budget.ceiling = null; z.budget.floor = null; z.budget.open = true; }
-  if (typeof modelFilters.headcount === "number" && modelFilters.headcount >= 1 && b.type !== "single-gift") z.headcount = modelFilters.headcount;
+  if (!echoGuard && typeof modelFilters.headcount === "number" && modelFilters.headcount >= 1 && b.type !== "single-gift") z.headcount = modelFilters.headcount;
   if (modelFilters.exclude_edible === true) z.exclude_edible = true;
   if (modelFilters.exclude_fragile === true) z.exclude_fragile = true;
   if (modelFilters.lightweight === true) z.lightweight = true;
