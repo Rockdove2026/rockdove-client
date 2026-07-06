@@ -527,6 +527,12 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       const wantsBrowse = /\b(?:show|see|view|browse|display|suggest|recommend|options?|ideas?|pieces|catalogue|catalog)\b/i.test(text);
       if (wasEmptySeedAtSend && !wantsBrowse && !wantsAll) shownIds = [];
 
+      // When Dove REFUSES an off-topic ask (backend sets off_topic), show no
+      // cards at all — a refusal with a shopping list under it reads wrong.
+      // Without this, the at-least-6 top-up above would re-attach the previous
+      // turn's pieces to the refusal.
+      if (data.off_topic) shownIds = [];
+
       // Debug snapshot (only assembled when ?debug=1): exactly what was sent to the
       // model this turn and what it returned — collapses the screenshot→SQL loop.
       const debugInfo = DEBUG_MODE ? {
@@ -559,6 +565,22 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
         debug: debugInfo,
       }]);
+
+      // Record what was actually DISPLAYED this turn. The final card set is
+      // decided here in the browser (Dove's picks + the top-up), so only the
+      // browser can log it. This is the "shown" half of shown→saved→chosen —
+      // without it there's nothing to learn "shown often, never saved" from.
+      // Fire-and-forget, same pattern as rd_shortlists above.
+      if (shownIds.length > 0) {
+        try {
+          supabase.from("rd_events").insert([{
+            session_id: session.id,
+            event_type: "products_shown",
+            product_id: null,
+            metadata: { product_ids: shownIds, count: shownIds.length },
+          }]).then(() => {});
+        } catch {}
+      }
 
       // ── Retrieval stickiness ───────────────────────────────────────────
       // Age every sticky entry by one turn (drop the expired), then (re)arm the
