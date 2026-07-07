@@ -47,7 +47,7 @@ function newBrief(type = "unassigned", label = "New brief") {
 }
 
 export function createConversationState() {
-  const b = newBrief("unassigned", "Initial brief");
+  const b = newBrief("unassigned", "New gift");
   return { active_brief_id: b.id, briefs: { [b.id]: b }, saved: [] };
 }
 
@@ -70,6 +70,14 @@ export function isEmptySeed(b) {
 const LABEL_STOP = new Set(["a","an","the","for","our","my","one","gift","gifts","present","presents",
   "brief","event","thing","something","this","that","initial","restored","new","gifting","go","back","to","with"]);
 const tok = (s) => (s || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !LABEL_STOP.has(w));
+
+// Placeholder labels a brief carries before it has earned a real name. Once the
+// brief has substance (a type), these are auto-replaced with a client-facing
+// name. Includes legacy strings ("Initial brief", "Restored brief") still
+// persisted in existing browsers so those briefs finally relabel too — the old
+// "Restored brief" was missing from this check and kept its internal name
+// forever, leaking into the which-gift chips.
+const PLACEHOLDER_LABELS = new Set(["New gift", "Earlier gift", "Initial brief", "New brief", "Restored brief"]);
 
 const TOPIC_WORDS = ["retreat","offsite","wedding","diwali","anniversary","holi","rakhi","board",
   "clients","client","employees","employee","staff","team","partners","distributors","vendors",
@@ -343,7 +351,7 @@ function syncFlat(state) {
 
 function ensureActive(state) {
   if (!activeBrief(state)) {
-    const b = newBrief("unassigned", "Initial brief");
+    const b = newBrief("unassigned", "New gift");
     state.briefs = state.briefs || {};
     state.briefs[b.id] = b;
     state.active_brief_id = b.id;
@@ -378,7 +386,7 @@ export function parseUserMessage(state, text) {
       typeUpgrade(target, psig);
       const sig2 = extractInto(target, text);
       typeUpgrade(target, sig2);
-      if ((target.label === "Initial brief" || target.label === "New brief") && target.type !== "unassigned") {
+      if (PLACEHOLDER_LABELS.has(target.label) && target.type !== "unassigned") {
         const base = (target.topicTokens && target.topicTokens.length) ? target.topicTokens.slice(0, 3).map(cap).join(" ") : (target.type === "single-gift" ? "Single gift" : "Event");
         target.label = uniqueLabel(state, base, target.id);
       }
@@ -393,7 +401,7 @@ export function parseUserMessage(state, text) {
 
   if (routing.lifecycle === "resolve-all") {
     for (const b of briefsOf(state)) b.status = "resolved";
-    const fresh = newBrief("unassigned", "Initial brief");
+    const fresh = newBrief("unassigned", "New gift");
     state.briefs[fresh.id] = fresh;
     state.active_brief_id = fresh.id;
     state.pending_clarify = false;
@@ -453,7 +461,7 @@ export function parseUserMessage(state, text) {
     b.topicTokens = [...tt];
   }
   typeUpgrade(b, sig);
-  if ((b.label === "Initial brief" || b.label === "New brief") && b.type !== "unassigned") {
+  if (PLACEHOLDER_LABELS.has(b.label) && b.type !== "unassigned") {
     const base = (b.topicTokens && b.topicTokens.length) ? b.topicTokens.slice(0, 3).map(cap).join(" ") : (b.type === "single-gift" ? "Single gift" : "Event");
     b.label = uniqueLabel(state, base, b.id);
   }
@@ -527,7 +535,7 @@ export function resolveActiveBrief(state) {
   if (a) a.status = "resolved";
   const parked = briefsOf(state).filter((b) => b.status === "parked").sort((x, y) => (y.createdAt || 0) - (x.createdAt || 0));
   if (parked.length) { parked[0].status = "active"; state.active_brief_id = parked[0].id; }
-  else { const f = newBrief("unassigned", "Initial brief"); state.briefs[f.id] = f; state.active_brief_id = f.id; }
+  else { const f = newBrief("unassigned", "New gift"); state.briefs[f.id] = f; state.active_brief_id = f.id; }
   syncFlat(state);
   return state;
 }
@@ -538,7 +546,7 @@ export function migrateState(persisted) {
   if (persisted.briefs && persisted.active_brief_id) return persisted;
 
   const hc = typeof persisted.headcount === "number" ? persisted.headcount : null;
-  const b = newBrief(hc === 1 ? "single-gift" : (hc != null && hc > 1 ? "event" : "unassigned"), "Restored brief");
+  const b = newBrief(hc === 1 ? "single-gift" : (hc != null && hc > 1 ? "event" : "unassigned"), "Earlier gift");
   b.business.headcount = hc;
   b.business.budget.ceiling = (typeof persisted.budget_ceiling === "number") ? persisted.budget_ceiling : null;
   b.business.budget.floor = (typeof persisted.budget_floor === "number") ? persisted.budget_floor : null;
