@@ -508,14 +508,23 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
 
       const modelShown = (Array.isArray(data.show_products) ? data.show_products : [])
         .filter(id => poolOkIds.includes(id));         // model's picks, minus anything over budget
+      const wantsBrowse = /\b(?:show|see|view|browse|display|suggest|recommend|options?|ideas?|pieces|catalogue|catalog)\b/i.test(text);
       let shownIds;
       if (wantsAll) {
         shownIds = poolOkIds;                          // everything matching the brief, uncapped
       } else {
         shownIds = [...modelShown];
-        for (const id of poolOkIds) {                  // top up to a minimum of 6, within budget
-          if (shownIds.length >= 6) break;
-          if (!shownIds.includes(id)) shownIds.push(id);
+        // Top up to 6 ONLY when there is something to anchor the cards to:
+        // Dove actually recommended pieces this turn, or the client asked to
+        // browse. When Dove is only asking a question (show_products empty),
+        // filling the reply with six pool-ranked pieces makes every question
+        // turn show the SAME six cards priced off whatever brief happens to be
+        // active — silence is better than a shopping list nobody asked for.
+        if (modelShown.length > 0 || wantsBrowse) {
+          for (const id of poolOkIds) {                // top up to a minimum of 6, within budget
+            if (shownIds.length >= 6) break;
+            if (!shownIds.includes(id)) shownIds.push(id);
+          }
         }
       }
 
@@ -524,7 +533,6 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       // generic pieces priced against no budget only distracts. On an empty
       // brief, show cards only when the client actually asked to browse; once
       // the brief has any substance, the at-least-6 guarantee applies as before.
-      const wantsBrowse = /\b(?:show|see|view|browse|display|suggest|recommend|options?|ideas?|pieces|catalogue|catalog)\b/i.test(text);
       if (wasEmptySeedAtSend && !wantsBrowse && !wantsAll) shownIds = [];
 
       // When Dove REFUSES an off-topic ask (backend sets off_topic), show no
