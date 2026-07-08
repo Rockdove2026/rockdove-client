@@ -466,11 +466,15 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           const ab = activeBrief(stateRef.current);
           if (!ab) return null;
           const b = ab.business || {}, bud = b.budget || {};
-          return { type: ab.type, label: ab.label,
+          // Phase 1 (rd_briefs): id is the server-side upsert key — without it the
+          // backend skips persistence entirely. The extra fields complete the row.
+          return { id: ab.id, type: ab.type, label: ab.label, status: ab.status,
                    headcount: (typeof b.headcount === "number" ? b.headcount : null),
                    budget_ceiling: (typeof bud.ceiling === "number" ? bud.ceiling : null),
                    budget_floor: (typeof bud.floor === "number" ? bud.floor : null),
-                   budget_per: bud.per || "head", budget_open: !!bud.open };
+                   budget_per: bud.per || "head", budget_open: !!bud.open,
+                   exclude_edible: !!b.exclude_edible, exclude_fragile: !!b.exclude_fragile,
+                   lightweight: !!b.lightweight, lean: b.lean || "balanced" };
         })() }),
       });
       if (!res.ok) throw new Error("status " + res.status);
@@ -585,7 +589,10 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
             session_id: session.id,
             event_type: "products_shown",
             product_id: null,
-            metadata: { product_ids: shownIds, count: shownIds.length },
+            // brief_id links the funnel to the brief: "shown at what budget, for
+            // which gift?" is unanswerable without it once a session has several.
+            metadata: { product_ids: shownIds, count: shownIds.length,
+                        brief_id: activeBrief(stateRef.current)?.id ?? null },
           }]).then(() => {});
         } catch {}
       }
@@ -912,12 +919,22 @@ export default function App() {
   }, [chatMessages, chatLoading]);
 
   const loadSession = async (token) => {
+    // Stage-2 RLS: the browser no longer reads rd_sessions/rd_shortlists directly
+    // (their public SELECT policies are dropped — token harvesting). The backend
+    // resolves the token with its service key and returns the session row plus
+    // the saved shortlist ids in one call. last_active now updates server-side.
     try {
-      const { data, error } = await supabase.from("rd_sessions").select("*").eq("token", token).single();
-      if (error || !data) { setNotFound(true); return; }
-      setSession(data);
-      supabase.from("rd_sessions").update({ last_active: new Date().toISOString() }).eq("id", data.id);
-      await Promise.all([loadProducts(), loadShortlist(data.id)]);
+      const res = await fetch(CATALOGUE_URL + "/session/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (!res.ok) { setNotFound(true); return; }
+      const data = await res.json();
+      if (!data?.session?.id) { setNotFound(true); return; }
+      setSession(data.session);
+      await loadProducts();
+      applyShortlist(data.shortlist_product_ids || []);
     } catch { setNotFound(true); }
   };
 
@@ -940,11 +957,13 @@ export default function App() {
     } catch(e) { console.error(e); }
   };
 
-  const loadShortlist = async (sessionId) => {
+  const applyShortlist = (productIds) => {
+    // Was loadShortlist (direct rd_shortlists SELECT); the ids now arrive from
+    // /session/resolve. Same hearting logic; the short delay lets product cards
+    // settle before heartedRef is filled, exactly as before.
     try {
-      const { data } = await supabase.from("rd_shortlists").select("product_id").eq("session_id", sessionId);
-      if (data?.length > 0) {
-        const ids = new Set(data.map(r => r.product_id));
+      if (productIds?.length > 0) {
+        const ids = new Set(productIds);
         setHearted(ids);
         setTimeout(() => {
           ids.forEach(id => {
@@ -963,7 +982,9 @@ export default function App() {
 
   const logEvent = useCallback(async (type, pid=null, meta={}) => {
     if (!session) return;
-    try { await supabase.from("rd_events").insert([{ session_id: session.id, event_type: type, product_id: pid, metadata: meta }]); } catch {}
+    // Every funnel event carries the active brief_id (Phase 1) — one change point
+    // covers product_view, shortlist_add/remove and shortlist_submit alike.
+    try { await supabase.from("rd_events").insert([{ session_id: session.id, event_type: type, product_id: pid, metadata: { ...meta, brief_id: activeBrief(stateRef.current)?.id ?? null } }]); } catch {}
   }, [session]);
 
   // Build summary chips from the three home fields
@@ -1174,12 +1195,19 @@ Always respond with valid JSON only:
     if (isHearted) {
       newHearted.delete(p.id);
       delete heartedRef.current[p.id];
-      supabase.from("rd_shortlists").delete().eq("session_id", session.id).eq("product_id", p.id);
+      // Stage-2: shortlist writes go through the backend (fire-and-forget, as before).
+      fetch(CATALOGUE_URL + "/shortlist/remove", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.id, product_id: p.id }),
+      }).catch(() => {});
       logEvent("shortlist_remove", p.id);
     } else {
       newHearted.add(p.id);
       heartedRef.current[p.id] = p;
-      supabase.from("rd_shortlists").insert([{ session_id:session.id, product_id:p.id }]);
+      fetch(CATALOGUE_URL + "/shortlist/add", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.id, product_id: p.id }),
+      }).catch(() => {});
       logEvent("shortlist_add", p.id);
       setShortlistOpen(true);
     }
