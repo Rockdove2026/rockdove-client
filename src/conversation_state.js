@@ -206,6 +206,19 @@ export function routeIntent(state, text) {
   }
 
   // 2. SWITCH — an explicit reference to a NON-ACTIVE existing brief (label / alias / ordinal).
+  // Occasion assignment first: "actually it is for Diwali" on a brief with no topic
+  // identity yet is the client NAMING the active brief's occasion — not a request to
+  // switch to a parked brief that happens to share the word (seen live: it switched
+  // to the parked 4–5k Diwali brief and derailed the new enquiry for two turns).
+  // Guards keep real switches intact: ordinals ("the first one"), brief references
+  // ("the event one"), and singular recipients ("this is for the CEO" → CREATE).
+  const occasionAssign = /\b(?:it|this|that)\s*(?:is|'s|was)\s*(?:actually\s+)?for\b/.test(t) || /\bactually\b[^.?!]{0,16}\bfor\b/.test(t);
+  const aNow = activeBrief(state);
+  if (occasionAssign && aNow && (aNow.topicTokens || []).length === 0 &&
+      !detectOrdinal(t) && !detectSingularGift(t).isSingle &&
+      !/\b(?:one|brief|other|earlier|previous)\b/.test(t)) {
+    return { ...base, op: "UPDATE", reference: "parameter" };
+  }
   const sw = resolveSwitch(state, t);
   if (sw) return { ...base, op: "SWITCH", reference: "brief", targetId: sw.targetId, score: sw.score };
 
@@ -282,7 +295,13 @@ function extractInto(b, text) {
     tr.match(/₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})\s*(?:\+|and\s+above|or\s+above|and\s+(?:up|over|higher|more)|or\s+more|plus|onwards?|and\s+upwards?)/));
   if (fm) {
     const val = parseInt(fm[1].replace(/,/g, ""), 10);
-    if (val >= 300 && val <= 1000000) { z.budget.floor = val; z.budget.open = false; touchedBudget = true; floorSet = true; }
+    if (val >= 300 && val <= 1000000) {
+      z.budget.floor = val; z.budget.open = false; touchedBudget = true; floorSet = true;
+      // Re-scoping upward: "10k and above" when a ₹5,000 ceiling lingers from an
+      // earlier turn. A floor above the ceiling is an impossible band — the stale
+      // ceiling drops. (A band stated in ONE message sets ceiling after this.)
+      if (z.budget.ceiling != null && z.budget.ceiling < val) z.budget.ceiling = null;
+    }
   }
 
   // Budget ceiling. All ceiling patterns run against `tc` — the text with any floor
@@ -296,12 +315,23 @@ function extractInto(b, text) {
     tc.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget|(?:in\s+)?total|overall|altogether)/);
   if (m) {
     const val = parseInt(m[1].replace(/,/g, ""), 10);
-    if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
+    if (val >= 300 && val <= 1000000) {
+      z.budget.ceiling = val; z.budget.open = false; touchedBudget = true;
+      // Re-scoping downward: "2k and under" while a ₹9,900 floor lingers from a
+      // parked event brief made floor>ceiling — an EMPTY candidate pool, so "show
+      // me all options" showed nothing and Dove described in prose (seen live,
+      // 17 Jul). A floor set in THIS message (floorSet) is a deliberate band and
+      // is kept; only a stale cross-turn floor above the new ceiling drops.
+      if (!floorSet && z.budget.floor != null && z.budget.floor > val) z.budget.floor = null;
+    }
   } else if (!floorSet) {
     const k = tr.match(/(\d+(?:\.\d+)?)\s*k\b/);
     if (k && /(budget|each|under|below|less than|at most|maximum|around|within|per|head|person|make\s+it|change|set\s+it|drop|raise|bump|price)/.test(t)) {
       const val = Math.round(parseFloat(k[1]) * 1000);
-      if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
+      if (val >= 300 && val <= 1000000) {
+        z.budget.ceiling = val; z.budget.open = false; touchedBudget = true;
+        if (z.budget.floor != null && z.budget.floor > val) z.budget.floor = null;
+      }
     }
   }
 
