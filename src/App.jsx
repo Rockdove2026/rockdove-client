@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Component } from "react";
 import { supabase } from "./supabase.js";
 import SubmissionSummary from "./SubmissionSummary.jsx";
 import { createConversationState, parseUserMessage, mergeModelFilters, toCandidateFilters, migrateState, activeBrief, isEmptySeed } from "./conversation_state.js";
@@ -59,13 +59,14 @@ function priceAtQty(tiers, qty) {
   if (!tiers?.length) return 0;
   try {
     const match = tiers.filter(t => qty >= t.min_qty && (t.max_qty===null||qty<=t.max_qty)).sort((a,b)=>b.min_qty-a.min_qty)[0];
-    if (match) return parseFloat(match.price_per_unit);
+    if (match) { const v = parseFloat(match.price_per_unit); return Number.isFinite(v) ? v : 0; }
     // No tier covers this qty (e.g. qty 1 against a catalogue whose tiers start
     // at 25). Fall back to the SMALLEST-quantity tier — deterministically —
     // instead of tiers[0], which depends on database row order and made the
     // same product show different prices on different turns.
     const smallest = tiers.slice().sort((a,b)=>a.min_qty-b.min_qty)[0];
-    return parseFloat(smallest.price_per_unit);
+    const v = parseFloat(smallest.price_per_unit);
+    return Number.isFinite(v) ? v : 0;
   } catch { return 0; }
 }
 
@@ -129,6 +130,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);  // gift-detail drawer
+  const [booting, setBooting] = useState(true); // FIX 2: greeting/memory fetch in flight
   const stateRef = useRef(null);
   if (stateRef.current === null) stateRef.current = createConversationState();
   // Mirror the active brief id up to App so shortlist events (logged at App
@@ -144,11 +146,15 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   // Persist the in-progress chat so a refresh / return-on-same-device restores it.
   const persist = (msgs) => {
     try {
+      // M2 (audit): debug snapshots (full candidate lists) were being persisted
+      // on every turn — quota exhaustion risk for zero value on restore. Strip
+      // them, and cap the stored transcript; the memory summary carries the rest.
+      const slim = msgs.slice(-80).map(({ debug, ...m }) => m);
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         v: 1,
-        messages: msgs,
+        messages: slim,
         state: stateRef.current,
-        history: historyRef.current,
+        history: historyRef.current.slice(-60),
         memory: memoryRef.current,
         savedAt: Date.now(),
       }));
@@ -190,15 +196,23 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       if (Array.isArray(saved.history)) historyRef.current = saved.history;
       if (saved.memory) memoryRef.current = saved.memory;
       setMessages(saved.messages);
+      setBooting(false);
       if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
       return;
     }
 
     // 2) No live chat -> ask the backend for this session's past history (memory).
     (async () => {
+      // FIX 2: this fetch previously had no timeout and nothing rendered while it
+      // ran — a hung backend meant a blank chat for minutes. 8s, then the normal
+      // first-time greeting; the returning-client greeting is a nicety, not worth
+      // dead air.
+      const memCtrl = new AbortController();
+      const memTimer = setTimeout(() => memCtrl.abort(), 8000);
       try {
         const res = await fetch(CATALOGUE_URL + "/dove-memory", {
           method: "POST",
+          signal: memCtrl.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: session.id }),
         });
@@ -208,6 +222,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
             // Keep the structured summary so every later turn can reference it.
             memoryRef.current = mem.summary || null;
             historyRef.current = [{ role: "assistant", content: mem.greeting }];
+            setBooting(false);
             setMessages([{
               role: "dove",
               text: mem.greeting,
@@ -217,6 +232,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
           }
         }
       } catch { /* fall through to first-time greeting */ }
+      finally { clearTimeout(memTimer); setBooting(false); }
       // 3) First-time (or memory unavailable) -> normal opener.
       setMessages([firstTimeGreeting]);
     })();
@@ -232,6 +248,10 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
   }, [messages]);
 
   const productById = (id) => (productsRef.current || []).find(p => p.id === id);
+  // H1 (audit 20 Jul): ?debug=1 previously worked on ANY session, exposing the
+  // full candidate pool — internal prices, the premium reserve, model filters —
+  // to any client who added the flag. Debug now also requires a demo session.
+  const debugOn = DEBUG_MODE && /demo/i.test(`${session?.client_name || ""} ${session?.client_company || ""}`);
   const qtyNow = stateRef.current?.headcount || 1;
 
   const send = async (textArg) => {
@@ -302,11 +322,20 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
 
     historyRef.current = [...historyRef.current, { role: "user", content: text }];
 
+    // H5 (audit): a hung backend previously spun "finding the right pieces…"
+    // forever — no timeout existed on this call.
+    const ctrl = new AbortController();
+    const killTimer = setTimeout(() => ctrl.abort(), 45000);
     try {
       const res = await fetch(CATALOGUE_URL + "/dove-converse", {
         method: "POST",
+        signal: ctrl.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: session.id, history: historyRef.current, candidates, memory: memoryRef.current || "", brief: (() => {
+        body: JSON.stringify({ session_id: session.id,
+          // H3 (audit): history grew unboundedly and the WHOLE of it shipped every
+          // turn — linear token-cost growth on an uncapped key. Recent turns carry
+          // the working context; the server-side memory summary carries the past.
+          history: historyRef.current.slice(-40), candidates, memory: memoryRef.current || "", brief: (() => {
           const ab = activeBrief(stateRef.current);
           if (!ab) return null;
           const b = ab.business || {}, bud = b.budget || {};
@@ -321,6 +350,14 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                    lightweight: !!b.lightweight, lean: b.lean || "balanced" };
         })() }),
       });
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        // Adversarial pass: a dead session previously looped "try again" forever.
+        setMessages(prev => [...prev, { role: "dove",
+          text: "This link is no longer active — please ask Rock Dove for a fresh one.", chips: [] }]);
+        setLoading(false);
+        clearTimeout(killTimer);
+        return;
+      }
       if (!res.ok) throw new Error("status " + res.status);
       const data = await res.json();
       stateRef.current = mergeModelFilters(stateRef.current, data.filters || {}, text) || stateRef.current;
@@ -392,7 +429,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
 
       // Debug snapshot (only assembled when ?debug=1): exactly what was sent to the
       // model this turn and what it returned — collapses the screenshot→SQL loop.
-      const debugInfo = DEBUG_MODE ? {
+      const debugInfo = debugOn ? {
         sent: {
           headcount: qty,
           budget: filters.budget_ceiling ?? null,
@@ -425,7 +462,9 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         // historical card in the transcript — legitimate data, but to a client it
         // reads as prices mutating at random (seen live, 20 Jul: ₹4,500→₹3,825).
         qtyAt: qty,
-        chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
+        // Adversarial pass: one non-string chip from the backend crashed the entire
+        // app to the error boundary (reproduced). Coerce and drop empties.
+        chips: (Array.isArray(data.follow_up_chips) ? data.follow_up_chips : []).map(c => typeof c === "string" ? c : "").filter(Boolean),
         debug: debugInfo,
       }]);
 
@@ -471,7 +510,33 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       for (const id of freshIds) nextSticky.set(id, STICKY_TURNS);
       stickyRef.current = nextSticky;
     } catch (e) {
-      setMessages(prev => [...prev, { role: "dove", text: "I'm just waking up — give me a moment and try that again.", chips: [] }]);
+      const timedOut = e && e.name === "AbortError";
+      // FIX 3: a dead session (401/403) is not a network blip — say so, don't loop.
+      const authDead = /^status 40[13]$/.test(e?.message || "");
+      // FIX 1: the input was cleared optimistically; on failure, put the client's
+      // text back so one Enter resends it — nobody retypes a five-clause brief.
+      // Also pop the orphaned user turn from history so a retry doesn't duplicate it.
+      if (!authDead) {
+        setInput(text);
+        historyRef.current = historyRef.current.slice(0, -1);
+      }
+      setMessages(prev => [...prev, {
+        role: "dove",
+        text: authDead
+          ? "This link is no longer active — please reach out to Rock Dove for a fresh one."
+          : timedOut
+            ? "That's taking longer than it should — your message is back in the box below; just press send again."
+            : "I couldn't reach our concierge just now — your message is back in the box below; just press send again.",
+        chips: [],
+      }]);
+      // M9 (audit): failures were invisible until a client screenshotted them.
+      // Best-effort breadcrumb into rd_events; never blocks or throws.
+      try {
+        supabase.from("rd_events").insert([{ session_id: session.id, event_type: "client_error",
+          product_id: null, metadata: { where: "dove-converse", kind: authDead ? "auth_dead" : timedOut ? "timeout" : "fetch_failed" } }]).then(() => {});
+      } catch {}
+    } finally {
+      clearTimeout(killTimer);
     }
     setLoading(false);
   };
@@ -513,7 +578,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     </span>
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
                   </div>
-                  <div className="rd-msg" style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.6, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                  <div className="rd-msg" style={{ fontFamily: RD.serif, fontSize: 17, fontWeight: 400, lineHeight: 1.6, color: RD.ink, maxWidth: 640, paddingLeft: 41, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{m.text}</div>
                 </div>
               ) : (
                 <div style={{ marginLeft: "auto", maxWidth: 500, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -521,7 +586,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.secondary }}>{(session.client_name || "You").split(" ")[0]}&nbsp;&nbsp;&middot;&nbsp;&nbsp;You</span>
                     <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 999, background: RD.secondary }} />
                   </div>
-                  <div className="rd-you" style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 15, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                  <div className="rd-you" style={{ background: RD.bubble, border: `1px solid ${RD.bubbleLine}`, borderRight: `3px solid ${RD.secondary}`, borderRadius: 14, padding: "15px 19px", fontSize: 15, fontWeight: 500, lineHeight: 1.56, color: RD.ink, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{m.text}</div>
                 </div>
               )}
 
@@ -536,7 +601,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                     return (
                       <div key={pid} style={{ border: `1px solid ${RD.line}`, background: RD.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                         <div className="rd-card-img" onClick={() => setDetail(p)} style={{ position: "relative", cursor: "pointer", width: "100%", paddingBottom: "100%", background: tintSoft }}>
-                          {p.image_url && <img src={p.image_url} alt={p.name || ""} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
+                          {p.image_url && <img src={p.image_url} alt={p.name || ""} loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display = "none"; }} />}
                           {p.tier && <span style={{ position: "absolute", top: 12, left: 12, fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fff", background: tint, padding: "5px 9px" }}>{p.tier}</span>}
                         </div>
                         <div style={{ padding: "16px 16px 18px", display: "flex", flexDirection: "column", flex: 1, borderTop: `1px solid ${RD.line}` }}>
@@ -544,7 +609,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                           
                           <div style={{ flex: 1, minHeight: 14 }} />
                           <div className="rd-card-foot" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${RD.line}` }}>
-                            <span className="rd-card-price" style={{ fontSize: 16, fontWeight: 600, whiteSpace: "nowrap", color: RD.ink }}>Rs.{price.toLocaleString("en-IN")}</span>
+                            <span className="rd-card-price" style={{ fontSize: price > 0 ? 16 : 12.5, fontWeight: 600, whiteSpace: "nowrap", color: price > 0 ? RD.ink : RD.inkMute }}>{price > 0 ? "Rs." + price.toLocaleString("en-IN") : "Price on request"}</span>
                             <button onClick={() => toggleHeart({ ...p, _price: price })}
                               style={{ border: isH ? `1px solid ${tint}` : `1px solid ${RD.ink}`, background: isH ? tint : "transparent", color: isH ? "#fff" : RD.ink, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 13px", borderRadius: 999, cursor: "pointer" }}>
                               {isH ? "\u2713 Saved" : "\u2661 Save"}
@@ -557,7 +622,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                 </div>
               )}
 
-              {DEBUG_MODE && m.role === "dove" && m.debug && (
+              {debugOn && m.role === "dove" && m.debug && (
                 <details style={{ marginLeft: 38, marginTop: 10, fontSize: 11, fontFamily: "ui-monospace,Menlo,monospace", color: "#555", background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 4, padding: "6px 10px" }}>
                   <summary style={{ cursor: "pointer", color: "#999", userSelect: "none" }}>
                     debug · sent {m.debug.sent.candidateCount} candidates · showed {m.debug.got.show_products.length}
@@ -593,6 +658,24 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
             </div>
           ))}
 
+          {booting && messages.length === 0 && (
+            <div>
+              <style>{`@keyframes doveThinking { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }`}</style>
+              <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+                <span style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 999, background: RD.accent, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2.5 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: "#fff" }} />
+                  <span style={{ width: 5, height: 5, borderRadius: 999, background: "#fff" }} />
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: RD.accent }}>Dove&nbsp;&nbsp;&middot;&nbsp;&nbsp;Concierge</span>
+              </div>
+              <div style={{ paddingLeft: 41, display: "flex", alignItems: "center", gap: 6 }}>
+                {[0, 1, 2].map(d => (
+                  <span key={d} style={{ width: 7, height: 7, borderRadius: "50%", background: RD.accent, display: "inline-block", animation: "doveThinking 1.2s ease-in-out infinite", animationDelay: `${d * 0.2}s` }}></span>
+                ))}
+                <span style={{ marginLeft: 8, fontFamily: "'PT Serif',Georgia,serif", fontStyle: "italic", fontSize: 14, color: RD.accent, opacity: 0.8 }}>setting up your concierge&hellip;</span>
+              </div>
+            </div>
+          )}
           {loading && (
             <div>
               {/* Keyframes injected here so the indicator never depends on an
@@ -626,10 +709,10 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
-              placeholder="Tell Dove about the occasion, the headcount, the budget per head…"
+              aria-label="Message Dove" placeholder="Tell Dove about the occasion, the headcount, the budget per head…"
               style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: RD.sans, fontSize: 15, fontWeight: 400, color: RD.ink, padding: "16px 20px" }}
             />
-            <button onClick={() => send()} disabled={loading}
+            <button aria-label="Send message" onClick={() => send()} disabled={loading}
               style={{ width: 54, flexShrink: 0, border: "none", background: RD.secondary, color: "#fff", fontSize: 20, cursor: "pointer" }}>&rarr;</button>
           </div>
         </div>
@@ -646,9 +729,11 @@ function ProductDetail({ product: p, qty, hearted, toggleHeart, onClose }) {
   const isH = hearted.has(p.id);
   const perHead = priceAtQty(p.pricing_tiers, qty);
   const total = perHead * (qty || 1);
-  const priceLine = (qty && qty > 1)
-    ? `Rs.${perHead.toLocaleString("en-IN")} per head \u00b7 Rs.${total.toLocaleString("en-IN")} for ${qty}`
-    : `Rs.${perHead.toLocaleString("en-IN")}`;
+  const priceLine = !(perHead > 0)
+    ? "Price on request"
+    : (qty && qty > 1)
+      ? `Rs.${perHead.toLocaleString("en-IN")} per head \u00b7 Rs.${total.toLocaleString("en-IN")} for ${qty}`
+      : `Rs.${perHead.toLocaleString("en-IN")}`;
   const box = Array.isArray(p.whats_in_box) ? p.whats_in_box : (p.whats_in_box ? [p.whats_in_box] : []);
   const specs = [];
   
@@ -719,9 +804,26 @@ function ProductDetail({ product: p, qty, hearted, toggleHeart, onClose }) {
 // chat over /dove-converse is now the only experience. Old ?mode=chat links
 // still work; the parameter is simply ignored.
 
-export default function App() {
+// M5 (audit): any render exception blanked the whole app — white screen, no
+// message, nothing logged. Catch it, show a branded fallback, leave a console trace.
+class RDErrorBoundary extends Component {
+  constructor(p) { super(p); this.state = { broken: false }; }
+  static getDerivedStateFromError() { return { broken: true }; }
+  componentDidCatch(err, info) { console.error("RD render error:", err, info); }
+  render() {
+    if (this.state.broken) return (
+      <div style={styles.fullCenter}><Logo size="xl" />
+        <p style={styles.muted}>Something went wrong on our side &mdash; please refresh the page.</p>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+function AppInner() {
   const [session, setSession] = useState(null);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState(false); // H6: network/backend failure ≠ invalid link
   const productsRef = useRef([]);
   const [submitted, setSubmitted] = useState(false);
   const [chatHeadcount, setChatHeadcount] = useState(null);
@@ -758,13 +860,13 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      if (!res.ok) { setNotFound(true); return; }
+      if (!res.ok) { setNotFound(true); return; }   // backend answered: token genuinely invalid
       const data = await res.json();
       if (!data?.session?.id) { setNotFound(true); return; }
       setSession(data.session);
       await loadProducts();
       applyShortlist(data.shortlist_product_ids || []);
-    } catch { setNotFound(true); }
+    } catch { setLoadError(true); }                    // backend unreachable: say so, don't blame the link
   };
 
   const loadProducts = async () => {
@@ -773,6 +875,10 @@ export default function App() {
         .select("*, pricing_tiers(*), product_tags(tag, dimension)")
         .eq("active", true).order("popularity", { ascending: false });
       if (error) {
+        // FIX 7: this fallback silently drops product_tags — category browse and
+        // material matching degrade (edible/fragile hard filters survive: they come
+        // from catalog booleans, not tags). Leave a breadcrumb so it's visible.
+        try { supabase.from("rd_events").insert([{ session_id: null, event_type: "client_error", product_id: null, metadata: { where: "loadProducts", kind: "product_tags_unavailable" } }]).then(() => {}); } catch {}
         const res = await supabase.from("catalog").select("*, pricing_tiers(*)").eq("active", true).order("popularity", { ascending: false });
         data = res.data;
       }
@@ -794,12 +900,13 @@ export default function App() {
       if (productIds?.length > 0) {
         const ids = new Set(productIds);
         setHearted(ids);
-        setTimeout(() => {
-          ids.forEach(id => {
-            const p = productsRef.current.find(x => x.id === id);
-            if (p) heartedRef.current[id] = p;
-          });
-        }, 1200);
+        // M1 (audit): this ran on a 1,200 ms setTimeout — a leftover from when
+        // products loaded in parallel. loadSession awaits loadProducts before
+        // calling this, so the catalogue is already in productsRef; fill now.
+        ids.forEach(id => {
+          const p = productsRef.current.find(x => x.id === id);
+          if (p) heartedRef.current[id] = p;
+        });
       }
     } catch {}
   };
@@ -818,11 +925,15 @@ export default function App() {
     if (isHearted) {
       newHearted.delete(p.id);
       delete heartedRef.current[p.id];
-      // Stage-2: shortlist writes go through the backend (fire-and-forget, as before).
+      // FIX 4: previously fire-and-forget — a failed write left the UI and server
+      // disagreeing until the next visit. On failure, revert the optimistic change.
       fetch(CATALOGUE_URL + "/shortlist/remove", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: session.id, product_id: p.id }),
-      }).catch(() => {});
+      }).catch(() => {
+        setHearted(prev => { const n = new Set(prev); n.add(p.id); return n; });
+        heartedRef.current[p.id] = p;
+      });
       logEvent("shortlist_remove", p.id);
     } else {
       newHearted.add(p.id);
@@ -830,7 +941,12 @@ export default function App() {
       fetch(CATALOGUE_URL + "/shortlist/add", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: session.id, product_id: p.id }),
-      }).catch(() => {});
+      }).catch(() => {
+        // Adversarial pass: the save was optimistic with no rollback — the UI said
+        // Saved while the server recorded nothing. Revert so the two agree.
+        setHearted(prev => { const n = new Set(prev); n.delete(p.id); return n; });
+        delete heartedRef.current[p.id];
+      });
       logEvent("shortlist_add", p.id);
     }
     setHearted(newHearted);
@@ -840,8 +956,11 @@ export default function App() {
     if (!session || hearted.size === 0) return;
     setSubmitting(true);
 
+    // M1 (audit): a heart whose ref entry is missing (e.g. catalogue hiccup)
+    // silently vanished from the submission — items:[] while count said N.
+    // Resolve stragglers from the live catalogue before giving up on them.
     const items = [...hearted]
-      .map(id => heartedRef.current[id])
+      .map(id => heartedRef.current[id] || (productsRef.current || []).find(p => p.id === id))
       .filter(Boolean)
       .map(p => ({ id: p.id, name: p.name, tier: p.tier || null, price: p._price || 0, image_url: p.image_url || null, bg: p._bg || null }));
     const total = items.reduce((s, p) => s + (p.price || 0), 0);
@@ -890,6 +1009,7 @@ export default function App() {
 
   const S = styles;
 
+  if (loadError) return <div style={S.fullCenter}><Logo size="xl"/><p style={S.muted}>We couldn&rsquo;t reach Rock Dove just now &mdash; please check your connection and refresh.</p></div>;
   if (notFound) return <div style={S.fullCenter}><Logo size="xl"/><p style={S.muted}>This link is invalid or has expired.</p></div>;
   if (!session) return <div style={S.fullCenter}><Logo size="xl"/><p style={S.muted}>Loading…</p></div>;
 
@@ -923,6 +1043,10 @@ export default function App() {
       activeBriefIdRef={activeBriefIdRef}
     />
   );
+}
+
+export default function App() {
+  return <RDErrorBoundary><AppInner /></RDErrorBoundary>;
 }
 
 const styles = {
