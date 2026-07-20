@@ -61,6 +61,7 @@ export function isEmptySeed(b) {
   if (!b) return false;
   const z = b.business;
   return b.type === "unassigned" && z.headcount == null && z.budget.ceiling == null &&
+    z.budget.floor == null &&
     z.budget.open === false && !z.exclude_edible && !z.exclude_fragile && !z.lightweight &&
     z.lean === "balanced" && (b.retrieval.shown || []).length === 0 &&
     Object.keys(b.retrieval.sticky || {}).length === 0;
@@ -548,8 +549,18 @@ export function mergeModelFilters(state, modelFilters = {}, userText = "") {
   // inferred headcount; revisit in the brief-routing design session.
   const echoGuard = isEmptySeed(b) && !/\d/.test(userText || "");
 
-  if (!echoGuard && typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) { z.budget.ceiling = modelFilters.budget_ceiling; z.budget.open = false; }
-  if (!echoGuard && typeof modelFilters.budget_floor === "number" && modelFilters.budget_floor > 0) { z.budget.floor = modelFilters.budget_floor; z.budget.open = false; }
+  if (!echoGuard && typeof modelFilters.budget_ceiling === "number" && modelFilters.budget_ceiling > 0) {
+    z.budget.ceiling = modelFilters.budget_ceiling; z.budget.open = false;
+    // Same contradiction rule as extractInto: a ceiling below a lingering floor
+    // is a re-scope — the stale floor drops. Without this, the model's returned
+    // filters recreate the impossible band (floor 9,900 + ceiling 2,000 → empty
+    // candidate pool) through the second door, undoing the parser-side fix.
+    if (z.budget.floor != null && z.budget.floor > z.budget.ceiling) z.budget.floor = null;
+  }
+  if (!echoGuard && typeof modelFilters.budget_floor === "number" && modelFilters.budget_floor > 0) {
+    z.budget.floor = modelFilters.budget_floor; z.budget.open = false;
+    if (z.budget.ceiling != null && z.budget.ceiling < z.budget.floor) z.budget.ceiling = null;
+  }
   if (modelFilters.budget_open === true) { z.budget.ceiling = null; z.budget.floor = null; z.budget.open = true; }
   if (!echoGuard && typeof modelFilters.headcount === "number" && modelFilters.headcount >= 1 && b.type !== "single-gift") z.headcount = modelFilters.headcount;
   if (modelFilters.exclude_edible === true) z.exclude_edible = true;
