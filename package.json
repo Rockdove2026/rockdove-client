@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node src/conversation_state.test.mjs && node src/candidate_filter.test.mjs",
+    "test:integration": "vitest run src/App.integration.test.jsx"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
@@ -14,7 +16,12 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "^4.2.0",
-    "vite": "^5.0.0"
+    "jsdom": "^29.1.1",
+    "vite": "^5.0.0",
+    "vitest": "^4.1.10"
   }
 }
