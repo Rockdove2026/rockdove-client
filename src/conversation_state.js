@@ -253,13 +253,32 @@ function extractInto(b, text) {
   const z = b.business;
   let touchedBudget = false, singleSignal = false;
 
+  // Budget RANGE — "₹4,000–₹5,000", "between 4000 and 5000", "from 3,000 to
+  // 5,000", "4-5k". A band sets BOTH bounds and must run before the floor and
+  // ceiling patterns: the bare ₹-pattern below would otherwise read the LOW end
+  // of "₹4,000–₹5,000" as the ceiling — inverting the client's budget. The
+  // matched band is erased from the text so no later pattern re-reads it.
+  const rm =
+    t.match(/(?:between\s+|from\s+)?₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})\s*(?:-|–|—|to|and)\s*₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})\b/) ||
+    t.match(/(\d+(?:\.\d+)?)\s*k?\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*k\b/);
+  let tr = t;
+  if (rm) {
+    let lo = parseFloat(rm[1].replace(/,/g, "")), hi = parseFloat(rm[2].replace(/,/g, ""));
+    if (lo < 100 && hi < 100) { lo *= 1000; hi *= 1000; }   // "4-5k" — both in thousands
+    lo = Math.round(lo); hi = Math.round(hi);
+    if (lo < hi && lo >= 300 && hi <= 1000000) {
+      z.budget.floor = lo; z.budget.ceiling = hi; z.budget.open = false; touchedBudget = true;
+      tr = t.replace(rm[0], " ");
+    }
+  }
+
   // Budget floor — "above / over / more than / at least / minimum / X and above / X+".
   // A floor is a MINIMUM price, and it must be read BEFORE the ceiling: the bare
   // "rs 5000" pattern below would otherwise mistake "rs 5000 and above" for a maximum.
-  let floorSet = false;
-  const fm =
-    t.match(/(?:above|over|more\s+than|at\s+least|minimum(?:\s+of)?|north\s+of|upwards?\s+of|no\s+less\s+than|starting\s+(?:at|from))\s*₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})/) ||
-    t.match(/₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})\s*(?:\+|and\s+above|or\s+above|and\s+(?:up|over|higher|more)|or\s+more|plus|onwards?|and\s+upwards?)/);
+  let floorSet = !!(rm && touchedBudget);
+  const fm = floorSet ? null : (
+    tr.match(/(?:above|over|more\s+than|at\s+least|minimum(?:\s+of)?|north\s+of|upwards?\s+of|no\s+less\s+than|starting\s+(?:at|from))\s*₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})/) ||
+    tr.match(/₹?\s*(?:rs\.?\s*|inr\s*)?(\d[\d,]{2,})\s*(?:\+|and\s+above|or\s+above|and\s+(?:up|over|higher|more)|or\s+more|plus|onwards?|and\s+upwards?)/));
   if (fm) {
     const val = parseInt(fm[1].replace(/,/g, ""), 10);
     if (val >= 300 && val <= 1000000) { z.budget.floor = val; z.budget.open = false; touchedBudget = true; floorSet = true; }
@@ -269,17 +288,17 @@ function extractInto(b, text) {
   // phrase erased — so "budget ₹5,000 and above" can't also read ₹5,000 as a maximum
   // (the word "budget" survives but its number is gone). A genuine band in one message
   // ("above 3,000, under 8,000") still works: only the floor phrase is removed.
-  const tc = fm ? t.replace(fm[0], " ") : t;
+  const tc = fm ? tr.replace(fm[0], " ") : tr;
   let m =
     (!floorSet && tc.match(/(?:₹|rs\.?\s*|inr\s*)\s*(\d[\d,]{2,})/)) ||
-    tc.match(/(?:under|around|within|upto|up to|max|budget(?:\s*(?:is|of|=|:))?)\s*₹?\s*(\d[\d,]{2,})/) ||
+    tc.match(/(?:under|below|less\s+than|at\s+most|maximum(?:\s+of)?|cap(?:ped)?\s+at|not\s+exceeding|around|within|upto|up to|max|budget(?:\s*(?:is|of|=|:))?)\s*₹?\s*(\d[\d,]{2,})/) ||
     tc.match(/(\d[\d,]{2,})\s*(?:each|per\s*(?:head|person|gift|piece)|pp|budget|(?:in\s+)?total|overall|altogether)/);
   if (m) {
     const val = parseInt(m[1].replace(/,/g, ""), 10);
     if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
-  } else if (!floorSet) {
-    const k = t.match(/(\d+(?:\.\d+)?)\s*k\b/);
-    if (k && /(budget|each|under|around|within|per|head|person)/.test(t)) {
+  } else if (!floorSet && z.budget.ceiling == null) {
+    const k = tr.match(/(\d+(?:\.\d+)?)\s*k\b/);
+    if (k && /(budget|each|under|below|less than|at most|maximum|around|within|per|head|person)/.test(t)) {
       const val = Math.round(parseFloat(k[1]) * 1000);
       if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
     }
