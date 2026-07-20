@@ -109,7 +109,8 @@ function detectSingularGift(t) {
   return { isSingle: false, recipient: null };
 }
 function detectDivergence(t) {
-  return /\b(separately|separate|also need|i also|in addition|additionally|another|one more|on top of that|aside from)\b/.test(t);
+  return /\b(separately|separate|also need|i also|in addition|additionally|another|one more|on top of that|aside from)\b/.test(t)
+    || /\b(?:new|fresh|different|separate)\s+(?:enquiry|inquiry|brief|request|requirement|ask)\b/.test(t);
 }
 function detectRecipientGroupIntro(t) {
   const intro = /\b(let'?s\s+(?:think about|look at|move on to|talk about|consider)|now|next)\b/.test(t);
@@ -296,9 +297,9 @@ function extractInto(b, text) {
   if (m) {
     const val = parseInt(m[1].replace(/,/g, ""), 10);
     if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
-  } else if (!floorSet && z.budget.ceiling == null) {
+  } else if (!floorSet) {
     const k = tr.match(/(\d+(?:\.\d+)?)\s*k\b/);
-    if (k && /(budget|each|under|below|less than|at most|maximum|around|within|per|head|person)/.test(t)) {
+    if (k && /(budget|each|under|below|less than|at most|maximum|around|within|per|head|person|make\s+it|change|set\s+it|drop|raise|bump|price)/.test(t)) {
       const val = Math.round(parseFloat(k[1]) * 1000);
       if (val >= 300 && val <= 1000000) { z.budget.ceiling = val; z.budget.open = false; touchedBudget = true; }
     }
