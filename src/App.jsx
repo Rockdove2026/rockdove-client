@@ -69,6 +69,19 @@ function priceAtQty(tiers, qty) {
   } catch { return 0; }
 }
 
+// The backend has (rarely) passed a malformed model response straight through in
+// `message` — prose followed by a raw, truncated `{"message":"…` blob (seen live,
+// 20 Jul). The root fix is server-side; this guard means a client can never see
+// raw JSON regardless: cut at any JSON envelope, strip fenced code blocks, and
+// fall back cleanly if nothing survives.
+function sanitizeDoveMsg(s) {
+  let x = String(s || "");
+  const j = x.search(/\{\s*"(?:message|filters|show_products)"\s*:/);
+  if (j > -1) x = x.slice(0, j);
+  x = x.replace(/```[a-z]*[\s\S]*?(?:```|$)/gi, "");
+  return x.trim();
+}
+
 function initials(name) { return name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(); }
 
 function Logo({ size = "md", onClick }) {
@@ -313,7 +326,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
       stateRef.current = mergeModelFilters(stateRef.current, data.filters || {}, text) || stateRef.current;
       syncBriefId();
       if (stateRef.current.headcount) setHeadcount(stateRef.current.headcount);
-      const msg = (data.message || "").trim() || "Tell me a little more — who are these for?";
+      const msg = sanitizeDoveMsg(data.message) || "Tell me a little more — who are these for?";
       historyRef.current = [...historyRef.current, { role: "assistant", content: msg }];
 
       // ── What the client actually sees as cards ──────────────────────────
@@ -406,6 +419,12 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
         role: "dove",
         text: msg,
         products: shownIds,
+        // Pricing is quantity-tiered, so the SAME card shows different (correct)
+        // prices at different headcounts. Snapshot the qty this reply was priced
+        // at: without it, changing the headcount later silently re-prices every
+        // historical card in the transcript — legitimate data, but to a client it
+        // reads as prices mutating at random (seen live, 20 Jul: ₹4,500→₹3,825).
+        qtyAt: qty,
         chips: Array.isArray(data.follow_up_chips) ? data.follow_up_chips : [],
         debug: debugInfo,
       }]);
@@ -511,7 +530,7 @@ function ChatView({ session, productsRef, hearted, toggleHeart, submitShortlist,
                   {m.products.map((pid, ci) => {
                     const p = productById(pid);
                     if (!p) return null;
-                    const price = priceAtQty(p.pricing_tiers, qtyNow);
+                    const price = priceAtQty(p.pricing_tiers, m.qtyAt || qtyNow);
                     const isH = hearted.has(p.id);
                     const tint = RD_PIECE[ci % 3], tintSoft = RD_PIECE_SOFT[ci % 3];
                     return (
